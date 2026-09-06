@@ -1,0 +1,52 @@
+# LoRA fine-tuning configuration (full precision training)
+# Inherits all base.yaml settings — override only what changes
+defaults:
+  - base
+
+model:
+  model_name_or_path: Qwen/Qwen2.5-1.5B
+  load_in_4bit: false
+  load_in_8bit: false
+  torch_dtype: bfloat16
+  trust_remote_code: true
+  use_flash_attention_2: false
+
+peft:
+  peft_type: LORA
+  task_type: CAUSAL_LM
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: none
+  # Target modules for Qwen2 architecture
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+training:
+  experiment_name: lora-r16-lr2e4
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 4   # effective batch size = 16
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  logging_steps: 10
+  eval_steps: 50
+  save_steps: 100
+  save_total_limit: 2
+  fp16: false
+  bf16: true
+  gradient_checkpointing: true
+  dataloader_num_workers: 0
+  max_seq_length: 512
+  packing: false
+  report_to: mlflow
+  output_dir: ./experiments/lora

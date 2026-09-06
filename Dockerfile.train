@@ -1,0 +1,44 @@
+﻿# =============================================================================
+# Finance LLM Training Image — GPU (CUDA 12.1)
+# =============================================================================
+# Designed for cloud GPU instances (Colab, Kaggle, Lambda, RunPod).
+# Includes full training stack: torch, transformers, peft, trl, bitsandbytes.
+#
+# Build:
+#   docker build -f Dockerfile.train -t finance-llm-train .
+#
+# Run (requires --gpus all):
+#   docker run --gpus all \
+#     -v $(pwd)/data:/app/data \
+#     -v $(pwd)/experiments:/app/experiments \
+#     -e HF_TOKEN=hf_your_token \
+#     finance-llm-train \
+#     python scripts/train.py --config configs/qlora.yaml
+# =============================================================================
+
+FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install training dependencies (bitsandbytes compiled for CUDA 12.1)
+RUN pip install --upgrade pip --no-cache-dir && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy full project source
+COPY . .
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TOKENIZERS_PARALLELISM=false
+
+# Default: help text (override CMD at runtime)
+CMD ["python", "scripts/train.py", "--help"]

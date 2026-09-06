@@ -1,0 +1,42 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Development files
+.env
+notes/
+notebooks/
+*.ipynb
+mlruns/
+
+# Large data and model files
+data/raw/
+*.safetensors
+*.bin
+*.gguf
+
+# Documentation
+README.md
+docs/
+
+# Tests (not needed in production image)
+tests/
+
+# IDE
+.vscode/
+.idea/

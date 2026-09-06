@@ -1,0 +1,43 @@
+﻿# ============================================================
+# LLM Fine-Tuning Platform — Inference-Only Requirements
+# Suitable for Docker inference container (no training deps)
+# Python 3.10+
+# ============================================================
+
+# Core ML (CPU-capable)
+torch==2.3.0
+
+# HuggingFace
+transformers==4.44.2
+tokenizers==0.19.1
+accelerate==0.33.0
+peft==0.12.0
+bitsandbytes==0.43.3
+
+# Evaluation
+rouge-score==0.1.2
+nltk==3.9.1
+bert-score==0.3.13
+evaluate==0.4.2
+
+# Config
+omegaconf==2.3.0
+
+# Data
+pandas==2.2.2
+numpy==1.26.4
+
+# Utilities
+loguru==0.7.2
+pyyaml==6.0.2
+rich==13.7.1
+
+# API
+fastapi==0.112.0
+uvicorn[standard]==0.30.5
+pydantic==2.8.2
+httpx==0.27.0
+
+# Testing
+pytest==8.3.2
+pytest-asyncio==0.23.8
