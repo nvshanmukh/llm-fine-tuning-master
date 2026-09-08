@@ -10,9 +10,9 @@ Usage:
     # Single query
     python scripts/inference.py --instruction "What is a mutual fund?"
 
-    # With fine-tuned QLoRA adapter
+    # With the fine-tuned LoRA adapter
     python scripts/inference.py \\
-        --adapter-path ./experiments/qlora/final_model --4bit \\
+        --adapter-path ./experiments/lora/final_model \\
         --instruction "Explain compound interest"
 
     # Interactive chat loop
@@ -71,7 +71,7 @@ def main(
     load_in_4bit: bool = typer.Option(
         False,
         "--4bit",
-        help="Load model in 4-bit quantization (for QLoRA inference).",
+        help="Load the base model in 4-bit for inference (optional; needs bitsandbytes + CUDA).",
     ),
     interactive: bool = typer.Option(
         False,
@@ -111,7 +111,7 @@ def main(
 
     model_id = "base"
     if adapter_path:
-        model_id = "qlora" if load_in_4bit else "lora"
+        model_id = "lora-4bit" if load_in_4bit else "lora"
 
     if revision is None and model_path == "Qwen/Qwen2.5-1.5B":
         from src.data.make_dataset import DEFAULT_MODEL_REVISION
@@ -306,13 +306,10 @@ def _run_smoke_test() -> None:
     assert cfg.data.max_seq_length == 512, "Max seq length mismatch"
     logger.info("  [PASS] Config loading (base.yaml)")
 
-    lora_cfg = load_config("configs/lora.yaml")
-    assert not lora_cfg.model.load_in_4bit, "LoRA config should not use 4-bit"
-    logger.info("  [PASS] Config loading (lora.yaml)")
-
-    qlora_cfg = load_config("configs/qlora.yaml")
-    assert qlora_cfg.model.load_in_4bit, "QLoRA config should use 4-bit"
-    logger.info("  [PASS] Config loading (qlora.yaml)")
+    lora_cfg = load_config("configs/lora.yaml")  # inherits base.yaml via `defaults:`
+    assert lora_cfg.peft.r == 16, "LoRA rank mismatch"
+    assert len(str(lora_cfg.model.revision)) == 40, "model revision must be pinned"
+    logger.info("  [PASS] Config loading (lora.yaml + defaults merge)")
 
     # --- Test 3: Evaluation metrics ---
     from src.evaluation.metrics import (
