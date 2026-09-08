@@ -7,13 +7,18 @@ an end-to-end ML-engineering project: dataset → validation → isolated splits
 baseline → LoRA fine-tuning → experiment tracking → controlled evaluation →
 error analysis → inference quantization → CLI → FastAPI → Docker.
 
-> **Status: `IMPLEMENTATION COMPLETE — FULL EXPERIMENTS PENDING`.**
-> The pipeline is implemented and every inexpensive stage has been executed and
-> verified. Training and evaluation of the **1.5B target model** were not run
-> here — this machine has no GPU, ~4.8 GB free RAM and Python 3.14. See
-> [`docs/VALIDATION.md`](docs/VALIDATION.md) for exactly what ran, and
-> [`docs/REQUIREMENTS_MATRIX.md`](docs/REQUIREMENTS_MATRIX.md) for per-requirement
-> evidence. **No performance numbers are claimed until measured.**
+> **Status: `IMPLEMENTATION COMPLETE — EXPERIMENTS NOT YET RUN`.**
+> The whole pipeline is implemented, tested (105 tests, CI green) and verified at
+> data / plumbing scale. Training and evaluation of the **1.5B target model** are
+> a deliberate next step — they need a GPU or a high-RAM box, which the dev
+> machine here doesn't have. See [`docs/VALIDATION.md`](docs/VALIDATION.md) for
+> exactly what ran and [`docs/REQUIREMENTS_MATRIX.md`](docs/REQUIREMENTS_MATRIX.md)
+> for per-requirement evidence. **No performance numbers are claimed until measured.**
+>
+> **To continue:** run the block under
+> [Reproducing the experiments](#reproducing-the-experiments) on a GPU / Colab /
+> Kaggle, then paste the numbers from `experiments/eval_results/comparison_table.md`
+> into the Results table and the Resume-bullets section.
 
 ---
 
