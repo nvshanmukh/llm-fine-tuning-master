@@ -50,6 +50,8 @@ L1/L2 results here must **never** be presented as L3 results.
   hangs on Python 3.14, so imports into `torch`/`transformers`/`datasets` are
   not followed).
 - `pytest -q` → **105 passed**.
+- CI (`.github/workflows/ci.yml`) runs `ruff check .` and `pytest -q` on every
+  push/PR on `ubuntu-latest` / Python 3.12 (CPU torch).
 
 ## Environment migration note
 

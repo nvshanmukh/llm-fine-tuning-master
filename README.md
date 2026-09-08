@@ -1,5 +1,7 @@
 # Finance LLM Fine-Tuning & Evaluation Platform
 
+[![CI](https://github.com/nvshanmukh/llm-fine-tuning-master/actions/workflows/ci.yml/badge.svg)](https://github.com/nvshanmukh/llm-fine-tuning-master/actions/workflows/ci.yml)
+
 Domain-specific instruction-following LLM for **personal-finance Q&A**, built as
 an end-to-end ML-engineering project: dataset → validation → isolated splits →
 baseline → LoRA / QLoRA → experiment tracking → controlled evaluation → error
