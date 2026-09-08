@@ -13,6 +13,7 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       - INFERENCE_MODEL_PATH=${INFERENCE_MODEL_PATH:-Qwen/Qwen2.5-1.5B}
+      # e.g. INFERENCE_ADAPTER_PATH=/models/lora/final_model
       - INFERENCE_ADAPTER_PATH=${INFERENCE_ADAPTER_PATH:-}
       - LOAD_IN_4BIT=${LOAD_IN_4BIT:-false}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -20,10 +21,10 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
     volumes:
-      # Mount local experiments dir so the container can use fine-tuned adapters
-      - ./experiments:/app/experiments:ro
-      # Mount HuggingFace cache to avoid re-downloading on restart
-      - hf_cache:/root/.cache/huggingface
+      # Mount local experiments dir (read-only) so the container can load adapters
+      - ./experiments:/models:ro
+      # Persist the HuggingFace cache across restarts (path matches HF_HOME)
+      - hf_cache:/app/.cache/huggingface
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]

@@ -1,29 +1,15 @@
-# Ablation study configuration grid
-# Run train.py --ablation to sweep over these
+# Ablation / hyperparameter sweep grid.
+#
+#   python scripts/train.py --config configs/lora.yaml --ablation
+#
+# Runs the full cross-product below (3 x 3 x 2 = 18 runs), each tracked as its
+# own MLflow run; failed runs are recorded in experiments/ablation_results.json
+# with their error instead of aborting the sweep.
+#
+# Primary question (one variable at a time): holding lr=2e-4 and epochs=3 fixed,
+# does raising the LoRA rank 8 -> 16 -> 32 materially improve validation loss and
+# test ROUGE-L, relative to the extra trainable parameters?
 ablation_grid:
-  lora_rank:
-    - 8
-    - 16
-    - 32
-  learning_rate:
-    - 1.0e-4
-    - 2.0e-4
-    - 5.0e-4
-  num_train_epochs:
-    - 2
-    - 3
-
-# Base settings for ablation runs
-base:
-  peft_type: LORA
-  task_type: CAUSAL_LM
-  lora_alpha: 32
-  lora_dropout: 0.05
-  bias: none
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 4
-  weight_decay: 0.01
-  warmup_ratio: 0.03
-  lr_scheduler_type: cosine
-  gradient_checkpointing: true
-  max_seq_length: 512
+  lora_rank: [8, 16, 32]
+  learning_rate: [1.0e-4, 2.0e-4, 5.0e-4]
+  num_train_epochs: [2, 3]

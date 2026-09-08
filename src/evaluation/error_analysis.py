@@ -17,6 +17,7 @@ Error taxonomy:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,53 +56,69 @@ class AnalyzedExample:
     analysis_notes: str = ""
 
 
+REFUSAL_MARKERS = (
+    "i'm not sure", "i am not sure", "i cannot", "i can't", "as an ai",
+    "i do not have", "i don't have", "unable to provide", "i'm sorry",
+)
+
+
 def categorize_error_heuristic(response: str, reference: str, instruction: str) -> str:
     """
     Heuristically categorize a response into one of the defined error categories.
 
-    This is a deterministic (no LLM) first-pass categorization.
-    It should be supplemented with manual review for a small sample.
+    This is a deterministic (no LLM, no human) FIRST-PASS categorization used to
+    triage large evaluation sets. It is intentionally conservative and can only
+    detect surface-level failure modes:
 
-    Categorization logic:
-    1. Incomplete: very short response (<10 words) or contains cut-off markers
-    2. Irrelevant: low word overlap with reference AND instruction
-    3. Instruction failure: response ignores key instruction keywords
-    4. Formatting failure: expected format elements are missing
-    5. Acceptable: passes all heuristic checks
+      - ``incomplete_answer``    -- very short output or explicit cut-off markers
+      - ``irrelevant_output``    -- almost no lexical overlap with question/reference
+      - ``domain_knowledge_gap`` -- explicit refusal / "I'm not sure" style answer
+      - ``formatting_failure``   -- reference is clearly structured (list / numbered)
+                                    but the response is a flat blob
+      - ``instruction_failure``  -- response echoes the prompt scaffolding / template
+      - ``hallucination``        -- heavy self-repetition (a weak proxy only)
+      - ``acceptable``           -- passes all heuristic checks
 
-    Args:
-        response: Model-generated response text.
-        reference: Ground-truth reference answer.
-        instruction: Original instruction/question.
-
-    Returns:
-        Error category string from ERROR_CATEGORIES.
+    ``incorrect_reasoning`` is deliberately never assigned here: it cannot be
+    detected without semantic understanding and must come from the LLM judge or
+    human review pass.
     """
-    response_words = set(response.lower().split())
+    resp = response.strip()
+    resp_lower = resp.lower()
+    response_words = set(resp_lower.split())
     reference_words = set(reference.lower().split())
     instruction_words = set(instruction.lower().split())
 
-    # 1. Check for incomplete response
-    if len(response.split()) < 10:
+    # 1. Incomplete / truncated
+    if len(resp.split()) < 10:
+        return "incomplete_answer"
+    if any(m in resp_lower for m in ("[cut", "[truncat")) or resp.endswith(("...", "-", ",")):
         return "incomplete_answer"
 
-    # 2. Check for truncation markers
-    truncation_markers = ["...", "[cut", "[truncat"]
-    if any(m in response.lower() for m in truncation_markers):
-        return "incomplete_answer"
+    # 2. Explicit refusal / knowledge gap
+    if any(m in resp_lower for m in REFUSAL_MARKERS):
+        return "domain_knowledge_gap"
 
-    # 3. Check for irrelevant response (minimal overlap with reference or instruction)
+    # 3. Leaked prompt scaffolding => did not follow the chat format
+    if any(tok in resp for tok in ("<|im_start|>", "<|im_end|>", "### Instruction:", "### Input:")):
+        return "instruction_failure"
+
+    # 4. Irrelevant (minimal overlap with both reference and instruction)
     overlap_with_ref = len(response_words & reference_words) / max(len(reference_words), 1)
     overlap_with_inst = len(response_words & instruction_words) / max(len(instruction_words), 1)
     if overlap_with_ref < 0.05 and overlap_with_inst < 0.1:
         return "irrelevant_output"
 
-    # 4. Repetition check (hallucination signal)
-    sentences = response.split(".")
-    if len(sentences) > 3:
-        unique_ratio = len(set(sentences)) / len(sentences)
-        if unique_ratio < 0.5:
-            return "hallucination"
+    # 5. Repetition (weak hallucination proxy)
+    sentences = [s.strip() for s in resp.split(".") if s.strip()]
+    if len(sentences) > 3 and len(set(sentences)) / len(sentences) < 0.5:
+        return "hallucination"
+
+    # 6. Formatting: structured reference vs flat response
+    ref_structured = bool(re.search(r"(^|\n)\s*(\d+[.)]|[-*])\s", reference))
+    resp_structured = bool(re.search(r"(^|\n)\s*(\d+[.)]|[-*])\s", response))
+    if ref_structured and not resp_structured and len(resp.split()) > 60:
+        return "formatting_failure"
 
     return "acceptable"
 
@@ -178,12 +195,14 @@ def generate_error_report(
         Dict with summary statistics and representative examples.
     """
     total = len(analyzed)
+    if total == 0:
+        return {"summary": {"total_examples": 0}, "error_distribution": {}, "representative_examples": {}}
     improvements = [a for a in analyzed if a.improvement]
     regressions = [a for a in analyzed if a.regression]
 
     # Compute error category distribution
-    base_cat_counts: dict[str, int] = {cat: 0 for cat in ERROR_CATEGORIES}
-    ft_cat_counts: dict[str, int] = {cat: 0 for cat in ERROR_CATEGORIES}
+    base_cat_counts: dict[str, int] = dict.fromkeys(ERROR_CATEGORIES, 0)
+    ft_cat_counts: dict[str, int] = dict.fromkeys(ERROR_CATEGORIES, 0)
     for a in analyzed:
         base_cat_counts[a.base_error_category] = base_cat_counts.get(a.base_error_category, 0) + 1
         ft_cat_counts[a.finetuned_error_category] = ft_cat_counts.get(a.finetuned_error_category, 0) + 1

@@ -36,12 +36,18 @@ data/raw/
 *.bin
 *.gguf
 
-# Experiments & checkpoints
-experiments/*/checkpoint-*/
-experiments/*/runs/
+# Processed dataset splits are large and fully regenerable from prepare_data.py.
+# The small, reviewable provenance artifacts are committed instead.
+data/processed/*.json
+!data/processed/stats.json
+!data/processed/leakage_report.json
+!data/processed/splits_manifest.json
 
-# MLflow runs (optionally commit mlruns for reproducibility)
-# mlruns/
+# Experiments, checkpoints, adapters, eval dumps - all regenerable.
+# Curated evidence (final metrics tables, provenance) lives in docs/.
+experiments/
+mlruns/
+mlflow.db
 
 # OS
 .DS_Store
