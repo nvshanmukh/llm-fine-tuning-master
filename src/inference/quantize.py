@@ -1,14 +1,17 @@
 """
 Post-training quantization utilities.
 
-Supports:
-- GGUF quantization via llama.cpp (Q4_K_M, Q8_0, etc.)
-- bitsandbytes dynamic quantization for inference
-- Model size estimation and comparison
+Three inference-quantization paths exist in this project:
 
-NOTE: GGUF conversion requires llama.cpp tools to be installed.
-For environments without llama.cpp, a bitsandbytes int8 quantization
-alternative is provided.
+- **torch dynamic int8** (CPU, no extra deps): pass ``dynamic_int8=True`` to
+  ``FinanceLLMPredictor``. Quantizes ``nn.Linear`` weights to int8, activations
+  quantized per-batch. This is the only path that runs without a GPU.
+- **bitsandbytes 4-/8-bit** (CUDA only): ``load_in_4bit`` / ``load_in_8bit`` on
+  ``FinanceLLMPredictor``, or ``quantize_bnb_int8`` here to persist an 8-bit model.
+- **GGUF** via llama.cpp (external tool): not wired in; see Future Work.
+
+Use ``scripts/quantize_compare.py`` to run a fair comparison (same test
+examples, greedy decoding) across modes and get quality / size / latency deltas.
 """
 from __future__ import annotations
 

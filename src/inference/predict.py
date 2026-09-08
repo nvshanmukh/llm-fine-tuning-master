@@ -75,6 +75,7 @@ class FinanceLLMPredictor:
         device_map: str | None = "auto",
         model_id: str = "unknown",
         merge_adapter: bool | None = None,
+        dynamic_int8: bool = False,
     ) -> None:
         """
         Initialize the predictor and load the model.
@@ -97,6 +98,7 @@ class FinanceLLMPredictor:
         self.model_id = model_id
         self.load_in_4bit = load_in_4bit
         self.load_in_8bit = load_in_8bit
+        self.dynamic_int8 = dynamic_int8
         self.adapter_merged = False
         self._model: Any = None
         self._tokenizer: Any = None
@@ -145,6 +147,9 @@ class FinanceLLMPredictor:
             "float32": torch.float32,
         }
         torch_dtype = dtype_map.get(torch_dtype_str, "auto")
+        if self.dynamic_int8:
+            # torch dynamic qlinear requires float32 activations
+            torch_dtype = torch.float32
 
         bnb_config = None
         if load_in_4bit or load_in_8bit:
@@ -190,6 +195,19 @@ class FinanceLLMPredictor:
                 logger.info("Adapter attached (not merged -- quantized base)")
 
         self._model.eval()
+
+        if self.dynamic_int8:
+            # CPU post-training dynamic quantization of the Linear layers.
+            # Works without CUDA/bitsandbytes; weights int8, activations quantized
+            # per-batch at runtime. Cannot be combined with bnb 4-/8-bit loading.
+            if load_in_4bit or load_in_8bit:
+                raise ValueError("dynamic_int8 cannot be combined with load_in_4bit/8bit")
+            import torch.ao.quantization as tq
+
+            logger.info("Applying torch dynamic int8 quantization to nn.Linear layers")
+            self._model = tq.quantize_dynamic(
+                self._model.to("cpu"), {torch.nn.Linear}, dtype=torch.qint8
+            )
 
         logger.info(f"Loading tokenizer: {self.model_path}")
         self._tokenizer = AutoTokenizer.from_pretrained(
@@ -302,14 +320,18 @@ class FinanceLLMPredictor:
     @property
     def model_size_mb(self) -> float:
         """
-        In-memory size of the model parameters in MB.
-
-        Note: for 4-/8-bit quantized models this reflects the packed
-        parameter bytes actually held in memory, not the notional
-        full-precision size.
+        Serialized size of the model's state_dict in MB (the deployable
+        footprint). Correct for fp32/fp16/bf16, bnb 4-/8-bit and torch
+        dynamic-int8 models alike.
         """
-        total_bytes = sum(
-            p.numel() * p.element_size()
-            for p in self._model.parameters()
-        )
-        return round(total_bytes / (1024 ** 2), 1)
+        import io
+
+        import torch
+
+        buf = io.BytesIO()
+        try:
+            torch.save(self._model.state_dict(), buf)
+            return round(buf.getbuffer().nbytes / (1024 ** 2), 1)
+        except Exception:  # fall back to a parameter-byte estimate
+            total = sum(p.numel() * p.element_size() for p in self._model.parameters())
+            return round(total / (1024 ** 2), 1)

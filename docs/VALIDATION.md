@@ -28,6 +28,8 @@ L1/L2 results here must **never** be presented as L3 results.
 | V10 | mypy | L1 | `mypy src scripts` | **Success: no issues found in 29 source files** |
 | V11 | Editable install + entry points | L1 | `pip install -e .` | EXIT 0; `prepare-data`/`train-model`/`evaluate-model`/`finance-infer`/`judge-eval` resolve |
 | V12 | Data pipeline reproducibility | L2 | `prepare_data.py --seed 42` run twice | identical split sizes (44,353 / 2,609 / 5,218) and `split_membership_sha256` digests |
+| V13 | Inference-quantization comparison | L2 | `quantize_compare.py --model-path Qwen/Qwen2.5-0.5B --modes fp,dynamic_int8,int4 --num-samples 3` | PROVENANCE RUN 4 — fp32 vs CPU dynamic-int8 measured (size ×0.53, latency ×0.66, ROUGE-L −0.197); bnb int4 cleanly recorded `unavailable` |
+| V14 | Real FastAPI inference integration | L1 | `pytest tests/test_api_integration.py` | 3 passed — app lifespan loads `sshleifer/tiny-gpt2`, `/health` ready, `/generate` real forward pass, `/evaluate` |
 
 ## NOT executed (blocked) — with the exact blocker
 
@@ -35,7 +37,7 @@ L1/L2 results here must **never** be presented as L3 results.
 |---|---|---|
 | Base (1.5B) evaluation on the test set | ~4.8 GB free RAM; 1.5B fp32 ≈ 6 GB → OOM. No GPU. | Run `python scripts/evaluate.py --model-type base --num-samples 200` on a machine with ≥16 GB RAM or any CUDA GPU |
 | Full LoRA training (1.5B, 3 epochs) | No GPU. CPU ETA is days. | `python scripts/train.py --config configs/lora.yaml` on a ≥12 GB-VRAM GPU (~1–2 h on a T4) |
-| QLoRA training + 4-bit inference + quantization comparison | `bitsandbytes` 4-bit needs CUDA; unavailable and no cp314 wheel. | `python scripts/train.py --config configs/qlora.yaml` on a CUDA host (≥6 GB VRAM) |
+| QLoRA training + **bitsandbytes NF4** inference | `bitsandbytes` 4-bit needs CUDA; unavailable and no cp314 wheel. (CPU torch dynamic-int8 *was* measured — V13.) | `python scripts/train.py --config configs/qlora.yaml` then `scripts/quantize_compare.py --modes fp,int4` on a CUDA host |
 | Ablation sweep | Same as LoRA (18 runs). | `python scripts/train.py --config configs/lora.yaml --ablation` |
 | LLM-as-judge run | `JUDGE_API_BASE` / `JUDGE_API_KEY` not set. | `JUDGE_API_BASE=… JUDGE_API_KEY=… python scripts/judge_eval.py --base experiments/eval_results/base_predictions.jsonl --finetuned experiments/eval_results/lora_predictions.jsonl` |
 | Docker build / run / endpoint calls | Docker daemon not running on this host. | `docker build -t finance-llm-api . && docker compose up` then `curl localhost:8000/health` |

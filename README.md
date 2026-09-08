@@ -50,8 +50,8 @@ evaluate.py
    │       error_analysis_<ft>_vs_base.json   (base vs fine-tuned, from saved predictions)
    │       comparison_table.md/json
    ▼
-judge_eval.py (optional)  ── blinded pairwise LLM-as-judge (A/B swapped), OpenAI-compatible
-quantize.py               ── post-training 4/8-bit inference comparison (CUDA)
+judge_eval.py (optional)   ── blinded pairwise LLM-as-judge (A/B swapped), OpenAI-compatible
+quantize_compare.py        ── fp vs torch-int8 (CPU) vs bnb 4/8-bit (CUDA), same test rows
    ▼
 src/api/main.py  ── FastAPI: GET /health, POST /generate, POST /evaluate
 Dockerfile        ── CPU inference image (non-root, HF cache volume, healthcheck = readiness)
@@ -182,9 +182,20 @@ list. The automatic categorizer is heuristic and surface-level
 
 ### Quantization
 
-`src/inference/quantize.py` + `FinanceLLMPredictor(load_in_4bit=…)` load the
-selected model in 4-/8-bit and run the **same** examples as the fp comparison.
-Requires CUDA + bitsandbytes; not run here.
+`scripts/quantize_compare.py` runs the **same** test examples (greedy) through
+the model in several precisions and reports quality / serialized size / latency:
+
+| mode | needs | status |
+|---|---|---|
+| `fp` | — | baseline |
+| `dynamic_int8` | CPU only (torch) | **measured** — see below |
+| `int8` / `int4` | CUDA + bitsandbytes | not run here (recorded as `unavailable`, never silently substituted) |
+
+**Measured (L2, `Qwen/Qwen2.5-0.5B`, n=3, CPU — plumbing scale, not a benchmark):**
+fp32 → torch `dynamic_int8`: size ×0.53, latency ×0.66, **ROUGE-L −0.197
+(quality regressed badly)**. Naive dynamic int8 without calibration is a poor
+tradeoff here; NF4/GPTQ typically degrade far less. Re-run on CUDA with n≥200
+before concluding anything (`docs/PROVENANCE.md` RUN 4).
 
 ---
 
