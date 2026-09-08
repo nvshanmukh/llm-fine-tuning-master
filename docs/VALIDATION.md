@@ -16,7 +16,7 @@ L1/L2 results here must **never** be presented as L3 results.
 
 | # | What | Level | Command | Result |
 |---|---|---|---|---|
-| V1 | Unit + integration test suite | L1 | `pytest -q` | **105 passed** — `test_api.py` 24, `test_api_integration.py` 3 (real tiny model), `test_data.py` 20, `test_evaluation.py` 40, `test_inference.py` 21, `test_training.py` 7 |
+| V1 | Unit + integration test suite | L1 | `pytest -q` | **105 passed** (data pipeline / splits / dedup / leakage, prompt + label masking, metrics + bootstrap + judge parsing, error analysis, inference dataclasses + prompts, mocked API + a real-model API integration test, config composition) |
 | V2 | No-model pipeline smoke | L1 | `python scripts/inference.py --smoke-test` | PASS (prompt template, config merge, metrics, error heuristics, dataclasses) |
 | V3 | Real inference path | L1 | `python scripts/inference.py --real-smoke-test` | PASS — `sshleifer/tiny-gpt2` loaded via `FinanceLLMPredictor`, 92→16 tokens in ~77 ms |
 | V4 | **Full data preparation** on the real dataset + real Qwen2.5-1.5B tokenizer | **L3 (data only)** | `python scripts/prepare_data.py --model-name Qwen/Qwen2.5-1.5B --max-seq-len 512 --seed 42` | Completed. 68,912 raw → 52,180 kept → train 44,353 / val 2,609 / test 5,218. Leakage overlaps all 0. Artifacts in `data/processed/`. |
