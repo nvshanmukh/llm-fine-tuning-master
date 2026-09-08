@@ -56,7 +56,7 @@ def _load_predictor() -> None:
 
     model_id = "base-model"
     if adapter_path:
-        model_id = "finetuned-qlora" if load_in_4bit else "finetuned-lora"
+        model_id = "finetuned-lora-4bit" if load_in_4bit else "finetuned-lora"
 
     logger.info(f"Loading model: {model_path} | adapter: {adapter_path} | 4bit: {load_in_4bit}")
     try:

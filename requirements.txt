@@ -1,12 +1,10 @@
 # ============================================================
 # LLM Fine-Tuning Platform - Training + full pipeline requirements
 #
-# Verified on: Python 3.14, CPU-only (Windows).  The data pipeline,
-# evaluation, inference, CLI, API and a tiny CPU LoRA plumbing run were
-# executed against exactly these lower bounds.
-#
-# GPU LoRA / QLoRA additionally needs a CUDA build of `bitsandbytes`
-# (see the commented line below) and an NVIDIA GPU.
+# Verified on: Python 3.14, CPU-only (Windows). The data pipeline,
+# evaluation, inference, CLI, API and a CPU LoRA training run were
+# executed against exactly these lower bounds. A GPU is optional and only
+# speeds LoRA training up (see README "Hardware").
 # ============================================================
 
 # Core ML
@@ -56,6 +54,3 @@ httpx>=0.27
 # Testing
 pytest>=8.3
 pytest-asyncio>=0.23
-
-# --- GPU-only: install manually on a CUDA host for QLoRA ---
-# bitsandbytes>=0.43 ; platform_system == "Linux"

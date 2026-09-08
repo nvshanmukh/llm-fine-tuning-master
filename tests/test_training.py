@@ -46,11 +46,6 @@ class TestTrainingConfigs:
         assert len(str(cfg.model.revision)) == 40, "model must be pinned to a full commit SHA"
         assert len(str(cfg.data.dataset_revision)) == 40, "dataset must be pinned to a full commit SHA"
 
-    def test_qlora_config_requests_4bit(self):
-        cfg = load_config("configs/qlora.yaml")
-        assert cfg.model.load_in_4bit is True
-        assert cfg.model.bnb_4bit_quant_type == "nf4"
-
     def test_ablation_grid_present(self):
         cfg = load_config("configs/ablation.yaml")
         grid = cfg.ablation_grid

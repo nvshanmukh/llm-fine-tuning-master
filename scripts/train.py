@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Training entrypoint script for LoRA and QLoRA fine-tuning.
+Training entrypoint script for LoRA fine-tuning.
 
 Usage:
     # LoRA fine-tuning
     python scripts/train.py --config configs/lora.yaml
 
-    # QLoRA fine-tuning
-    python scripts/train.py --config configs/qlora.yaml
+    # CPU / small-machine plumbing run (tiny model, few steps)
+    python scripts/train.py --config configs/smoke.yaml --max-train-samples 200
 
     # Override specific config values
     python scripts/train.py --config configs/lora.yaml --learning-rate 1e-4 --epochs 2
@@ -33,7 +33,7 @@ from src.utils.config_utils import load_config, load_env_overrides, merge_config
 from src.utils.logging_utils import setup_logger
 from src.utils.seed import set_seed
 
-app = typer.Typer(help="Train LoRA or QLoRA on the finance-alpaca dataset.")
+app = typer.Typer(help="Train LoRA on the finance-alpaca dataset.")
 
 
 @app.command()
@@ -52,7 +52,7 @@ def main(
     ablation_config: str = typer.Option("configs/ablation.yaml", help="Ablation config YAML"),
     log_level: str = typer.Option("INFO", help="Log level"),
 ) -> None:
-    """Fine-tune Qwen2.5-1.5B with LoRA or QLoRA on finance-alpaca."""
+    """Fine-tune Qwen2.5-1.5B with LoRA on finance-alpaca."""
     setup_logger(level=log_level)
     load_env_overrides()
 

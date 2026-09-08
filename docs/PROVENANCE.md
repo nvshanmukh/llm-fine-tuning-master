@@ -87,6 +87,8 @@ Every executed run, with enough detail to trace or reproduce it. Runs here are
 
 ## Pending (blocked — see docs/VALIDATION.md)
 
-`base` / `lora` / `qlora` evaluation of **Qwen/Qwen2.5-1.5B**, the ablation
-sweep, the quantization comparison, the LLM-judge run, and the Docker build.
-Commands are in `README.md` → "Reproducing the full experiments".
+`base` / `lora` evaluation of **Qwen/Qwen2.5-1.5B**, the ablation sweep, the
+bitsandbytes int4/int8 quantization comparison, the LLM-judge run, and the
+Docker build. Commands are in `README.md` → "Reproducing the experiments".
+
+(QLoRA training was removed from scope — see `docs/VALIDATION.md`.)

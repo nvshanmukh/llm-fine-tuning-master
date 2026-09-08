@@ -16,13 +16,20 @@ Value vocabulary: `MEASURED`, `DERIVED`, `ESTIMATED`, `PENDING`, `BLOCKED`.
 | Docker | installed (29.7.2) but **daemon not running** |
 | Key libs (venv) | torch 2.14.0+cpu, transformers 5.16.1, datasets 5.0.1, peft 0.20.0, accelerate 1.14.0, mlflow 3.16.0, trl 1.12 (unused) |
 
+### Scope note
+
+**QLoRA / 4-bit *training* was removed from scope** by decision (no GPU on the
+target hardware): `configs/qlora.yaml` and `Dockerfile.train` were deleted and
+`bitsandbytes` dropped from the requirements. The project now targets **LoRA**
+fine-tuning. Optional int8/int4 *inference* quantization stays in
+`scripts/quantize_compare.py` — install `bitsandbytes` on a CUDA host to use it.
+
 ### Hard external constraints
 
-1. **No GPU** → LoRA/QLoRA training of the 1.5B target model is not feasible; QLoRA
-   (bitsandbytes 4-bit) requires CUDA and cannot run at all.
+1. **No GPU** → LoRA training of the 1.5B target model is not feasible locally.
 2. **Python 3.14** → the originally pinned stack (torch 2.3, transformers 4.44,
-   trl 0.9.6, bitsandbytes 0.43) has no wheels; the code was migrated to the
-   modern stack that does install.
+   trl 0.9.6) has no wheels; the code was migrated to the modern stack that does
+   install.
 3. **~4.8 GB free RAM** → loading the 1.5B target model in fp32 (~6 GB) OOMs;
    target-model *inference* is also blocked locally. A 0.5B sibling is used for
    the training-plumbing smoke.
@@ -54,9 +61,9 @@ Value vocabulary: `MEASURED`, `DERIVED`, `ESTIMATED`, `PENDING`, `BLOCKED`.
 | 7 | Pre-train resource estimates labelled | VERIFIED (doc) | README hardware table (ESTIMATED) | marked as estimates | README | replace with MEASURED after GPU run |
 | 8 | Base model evaluated before improvement claims | VERIFIED (plumbing, 0.5B) | `evaluate.py --model-type base` | runs, saves predictions before any FT claim | PROVENANCE RUN 3 — base eval produced `base_predictions.jsonl` + report; **1.5B base eval still blocked (RAM)** | run on GPU/large-RAM |
 | 8 | LoRA is a real execution path (opt steps, adapter save/reload) | VERIFIED (plumbing) | `trainer.py`, `training/data.py` | real optimizer steps, adapter saved & reloadable | `experiments/smoke/` LoRA run on Qwen2.5-0.5B, CPU (see PROVENANCE) | run at full scale on 1.5B |
-| 8 | QLoRA is a real, distinct path; no silent fallback | IMPLEMENTED_UNVERIFIED + BLOCKED | `build_bnb_config`, `_assert_qlora_supported` | 4-bit load real; aborts if unsupported | `_assert_qlora_supported` raises on no-CUDA (unit-inspectable) | run on CUDA host |
+| 8 | QLoRA training path | NOT_APPLICABLE (removed from scope) | — | — | `configs/qlora.yaml`, `Dockerfile.train`, `bitsandbytes` dep deleted; project targets LoRA | — |
 | 8 | Config-driven hyperparameters | VERIFIED | `configs/*.yaml` + `load_config` defaults-merge | all knobs in YAML | `test_training.py::TestTrainingConfigs` | — |
-| 9 | Controlled Base/LoRA/QLoRA comparison | VERIFIED (plumbing) | `evaluate.py --compare-all` | identical sample_ids, prompt, decoding | PROVENANCE RUN 3 — base & lora scored on the same test rows, same greedy config, same test fingerprint `a7cc705c67b60c50` | run with 1.5B adapters + QLoRA |
+| 9 | Controlled Base vs LoRA comparison | VERIFIED (plumbing) | `evaluate.py --compare-all` | identical sample_ids, prompt, decoding | PROVENANCE RUN 3 — base & lora scored on the same test rows, same greedy config, same test fingerprint `a7cc705c67b60c50` | run with the 1.5B adapter |
 | 9 | Hyperparameter experiment / ablation | IMPLEMENTED_UNVERIFIED | `train.py --ablation`, `configs/ablation.yaml` | grid runs, failures visible | code; `_run_ablation` records per-run errors | run on GPU |
 | 9 | MLflow tracking of every run | VERIFIED (plumbing) | `trainer.py`, `evaluate.py`, `callbacks.py` | params/metrics/artifacts logged | smoke run logged to `sqlite:///mlflow.db` | — |
 | 10 | Task-appropriate metrics, not train loss | VERIFIED | `metrics.py` (ROUGE/BLEU/BERTScore/EM/len) | implemented + tested | `test_evaluation.py` (24 tests) | — |
@@ -69,8 +76,8 @@ Value vocabulary: `MEASURED`, `DERIVED`, `ESTIMATED`, `PENDING`, `BLOCKED`.
 | 10 | Memory reporting labelled (CPU/alloc/reserved/peak) | PARTIAL | `hardware.get_gpu_memory_usage` | labels allocated/reserved | code; only meaningful on GPU | measure on GPU |
 | 11 | LLM-as-judge with rubric, raw judgments, bias controls | IMPLEMENTED_UNVERIFIED / BLOCKED (creds) | `judge.py`, `scripts/judge_eval.py` | blinded pairwise, A/B swap, not self-judge | code; writes `blocked_missing_credentials` report w/ rerun cmd | set `JUDGE_API_*` and run |
 | 12 | Error analysis from real saved predictions | VERIFIED (plumbing) | `error_analysis.py`, `evaluate.py::_error_analysis_vs_base` | base vs ft from jsonl, both improvements & regressions | PROVENANCE RUN 3 — `error_analysis_lora_vs_base.json` generated from saved predictions (summary, error_distribution, top improvements/regressions, paired ROUGE-L diff) | run at scale on 1.5B outputs |
-| 13 | Post-training inference quantization vs full precision | PARTIAL (CPU int8 measured; bnb 4-bit blocked) | `predict.py` `dynamic_int8`, `scripts/quantize_compare.py` | load, run same test examples, compare quality/size/latency | PROVENANCE RUN 4 — fp32 vs torch dynamic-int8 on Qwen2.5-0.5B (n=3): size ×0.53, latency ×0.66, ROUGE-L −0.197 (**quality regressed**); bnb `int4` recorded as `unavailable` (ImportError, no fallback) | run bnb NF4 on CUDA + larger n |
-| 14 | Clean inference module (base/LoRA/QLoRA/quant, cached, structured) | VERIFIED (real, small model) | `src/inference/predict.py` | real generate call, adapter reload | `scripts/inference.py --real-smoke-test` PASSED (tiny-gpt2); PROVENANCE RUN 3 loaded + merged a real LoRA adapter | run with 1.5B + adapter |
+| 13 | Post-training inference quantization vs full precision | PARTIAL (CPU int8 measured; bnb int4/8 optional) | `predict.py` `dynamic_int8`, `scripts/quantize_compare.py` | load, run same test examples, compare quality/size/latency | PROVENANCE RUN 4 — fp32 vs torch dynamic-int8 on Qwen2.5-0.5B (n=3): size ×0.53, latency ×0.66, ROUGE-L −0.197 (**quality regressed**); bnb `int4` recorded as `unavailable` (no fallback) | run bnb int4/8 on CUDA + larger n |
+| 14 | Clean inference module (base/LoRA/int8/quant, cached, structured) | VERIFIED (real, small model) | `src/inference/predict.py` | real generate call, adapter reload | `scripts/inference.py --real-smoke-test` PASSED (tiny-gpt2); PROVENANCE RUN 3 loaded + merged a real LoRA adapter | run with 1.5B + adapter |
 | 14 | Adapter/model compatibility validation | VERIFIED (impl) | `_validate_adapter_compatibility` | checks adapter_config base | code + smoke adapter reload | — |
 | 15 | FastAPI /health /generate /evaluate | VERIFIED | `src/api/main.py` | endpoints, validation, 503 semantics, real inference path | `tests/test_api.py` (24, mocked) + `tests/test_api_integration.py` (3, real `sshleifer/tiny-gpt2` through the lifespan: `/health` ready, `/generate` real forward pass, `/evaluate`) | run once with the 1.5B adapter |
 | 15 | Health not "ok" when model failed to load | VERIFIED | lifespan records error, `/health` → 503 | test | `test_returns_503_when_no_model_loaded` | — |
@@ -81,4 +88,4 @@ Value vocabulary: `MEASURED`, `DERIVED`, `ESTIMATED`, `PENDING`, `BLOCKED`.
 | 18 | README matches verified state | VERIFIED | `README.md` rewrite | claims ↔ evidence | README + this matrix + `docs/VALIDATION.md` | update results after GPU runs |
 | 19 | Validation levels labelled | VERIFIED | `docs/VALIDATION.md` | L1/L2/L3 tagged | that file | — |
 | 20 | Compute-limited behavior (largest meaningful validation, commands for pending) | VERIFIED | `docs/VALIDATION.md`, README "Reproducing" | reduced runs labelled; full commands given | those docs | — |
-| 22 | Final acceptance gate | `IMPLEMENTATION COMPLETE — FULL EXPERIMENTS PENDING` | — | see gate list | training/QLoRA/quant blocked by no-GPU | GPU host |
+| 22 | Final acceptance gate | `IMPLEMENTATION COMPLETE — FULL EXPERIMENTS PENDING` | — | see gate list | 1.5B LoRA training + evaluation blocked by no-GPU (QLoRA out of scope) | GPU / high-RAM host |

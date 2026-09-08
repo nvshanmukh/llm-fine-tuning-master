@@ -37,7 +37,7 @@ L1/L2 results here must **never** be presented as L3 results.
 |---|---|---|
 | Base (1.5B) evaluation on the test set | ~4.8 GB free RAM; 1.5B fp32 ≈ 6 GB → OOM. No GPU. | Run `python scripts/evaluate.py --model-type base --num-samples 200` on a machine with ≥16 GB RAM or any CUDA GPU |
 | Full LoRA training (1.5B, 3 epochs) | No GPU. CPU ETA is days. | `python scripts/train.py --config configs/lora.yaml` on a ≥12 GB-VRAM GPU (~1–2 h on a T4) |
-| QLoRA training + **bitsandbytes NF4** inference | `bitsandbytes` 4-bit needs CUDA; unavailable and no cp314 wheel. (CPU torch dynamic-int8 *was* measured — V13.) | `python scripts/train.py --config configs/qlora.yaml` then `scripts/quantize_compare.py --modes fp,int4` on a CUDA host |
+| bitsandbytes int4/int8 *inference* quantization | needs `pip install bitsandbytes` + CUDA (optional). CPU torch dynamic-int8 *was* measured — V13. | `scripts/quantize_compare.py --modes fp,int8` on a CUDA host with bitsandbytes installed |
 | Ablation sweep | Same as LoRA (18 runs). | `python scripts/train.py --config configs/lora.yaml --ablation` |
 | LLM-as-judge run | `JUDGE_API_BASE` / `JUDGE_API_KEY` not set. | `JUDGE_API_BASE=… JUDGE_API_KEY=… python scripts/judge_eval.py --base experiments/eval_results/base_predictions.jsonl --finetuned experiments/eval_results/lora_predictions.jsonl` |
 | Docker build / run / endpoint calls | Docker daemon not running on this host. | `docker build -t finance-llm-api . && docker compose up` then `curl localhost:8000/health` |
@@ -61,4 +61,10 @@ for the only interpreter available here (3.14). The code was migrated to the
 current stack (torch 2.14, transformers 5.16, peft 0.20, no trl) and the
 training path was rewritten to use the plain HF `Trainer` + an explicit
 response-masking collator (`src/training/data.py`) instead of TRL's
-ever-changing `SFTTrainer`. `bitsandbytes` remains GPU/CUDA-only.
+ever-changing `SFTTrainer`.
+
+**QLoRA / 4-bit training was then removed from scope** (no GPU on the target
+hardware): `configs/qlora.yaml` and `Dockerfile.train` deleted, `bitsandbytes`
+dropped from the requirements. The project targets **LoRA**. Optional int8/int4
+*inference* quantization remains in `scripts/quantize_compare.py` for anyone who
+installs `bitsandbytes` on a CUDA host.
