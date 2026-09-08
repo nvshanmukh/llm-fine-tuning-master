@@ -41,6 +41,11 @@ class TestTrainingConfigs:
         assert cfg.peft.r == 16
         assert "q_proj" in list(cfg.peft.target_modules)
 
+    def test_model_and_dataset_revisions_are_pinned(self):
+        cfg = load_config("configs/lora.yaml")  # inherits base.yaml
+        assert len(str(cfg.model.revision)) == 40, "model must be pinned to a full commit SHA"
+        assert len(str(cfg.data.dataset_revision)) == 40, "dataset must be pinned to a full commit SHA"
+
     def test_qlora_config_requests_4bit(self):
         cfg = load_config("configs/qlora.yaml")
         assert cfg.model.load_in_4bit is True

@@ -12,6 +12,7 @@ project:
 
 model:
   model_name_or_path: Qwen/Qwen2.5-0.5B
+  revision: 060db6499f32faf8b98477b0a26969ef7d8b9987
   load_in_4bit: false
   load_in_8bit: false
   torch_dtype: float32

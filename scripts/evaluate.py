@@ -144,15 +144,21 @@ def _run_single_eval(
     skip_bertscore: bool,
     load_in_4bit: bool = False,
     seed: int = 42,
+    revision: str | None = None,
 ) -> dict:
     """Generate predictions for one model variant, save artifacts, return the report."""
     import mlflow
 
+    from src.data.make_dataset import DEFAULT_MODEL_REVISION
     from src.data.prompt_template import format_for_inference
     from src.inference.predict import FinanceLLMPredictor, GenerationConfig
 
+    if revision is None and model_path == DEFAULT_BASE_MODEL:
+        revision = DEFAULT_MODEL_REVISION
+
     logger.info(
-        f"Evaluating: {model_type} | model={model_path} | adapter={adapter_path} | 4bit={load_in_4bit}"
+        f"Evaluating: {model_type} | model={model_path}@{revision or 'main'} "
+        f"| adapter={adapter_path} | 4bit={load_in_4bit}"
     )
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -164,6 +170,7 @@ def _run_single_eval(
         adapter_path=adapter_path or None,
         load_in_4bit=load_in_4bit,
         model_id=model_type,
+        revision=revision,
     )
 
     do_sample = temperature > 0.0
@@ -209,6 +216,7 @@ def _run_single_eval(
     eval_report = {
         "model_type": model_type,
         "model_path": model_path,
+        "model_revision": revision,
         "adapter_path": adapter_path,
         "adapter_merged": getattr(predictor, "adapter_merged", None),
         "load_in_4bit": load_in_4bit,
@@ -383,6 +391,7 @@ def _run_comparison(
 @app.command()
 def main(
     model_path: str = typer.Option(DEFAULT_BASE_MODEL, help="Base model path or HF model ID"),
+    revision: str = typer.Option(None, help="Pin the base model's HF commit (default: base.yaml pin)"),
     adapter_path: str = typer.Option(None, help="LoRA/QLoRA adapter path (empty = base model)"),
     model_type: str = typer.Option("base", help="Report identifier: base, lora, or qlora"),
     data_dir: str = typer.Option("./data/processed", help="Directory containing test.json"),
@@ -433,6 +442,7 @@ def main(
             data_dir=data_dir, output_dir=output_dir, num_samples=num_samples,
             max_new_tokens=max_new_tokens, temperature=temperature,
             skip_bertscore=skip_bertscore, load_in_4bit=load_in_4bit, seed=seed,
+            revision=revision,
         )
 
 

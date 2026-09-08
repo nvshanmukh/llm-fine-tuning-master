@@ -1,7 +1,7 @@
 {
   "dataset_source": "gbharti/finance-alpaca",
   "license": "Apache-2.0 (code) / CC-BY-4.0 (data) - see dataset card",
-  "created_utc": "2026-09-08T02:39:24Z",
+  "created_utc": "2026-09-08T04:46:25Z",
   "seed": 42,
   "environment": {
     "python": "3.14.4",
@@ -42,8 +42,12 @@
   "total_examples": 52180,
   "raw_examples": 68912,
   "examples_after_filtering": 52180,
+  "dataset_revision": "c88d3d5e7e2c7cab9f11a56f27bd5ba3ed68f075",
+  "tokenizer": "Qwen/Qwen2.5-1.5B",
+  "tokenizer_revision": "8faed761d45a263340a0528343f099c05c9a4323",
   "token_length_stats": {
     "tokenizer": "Qwen/Qwen2.5-1.5B",
+    "tokenizer_revision": "8faed761d45a263340a0528343f099c05c9a4323",
     "max_seq_length": 512,
     "count_pre_filter": 52825,
     "mean": 152.8,

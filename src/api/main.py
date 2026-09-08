@@ -50,6 +50,7 @@ def _load_predictor() -> None:
     global _predictor, _model_load_error
 
     model_path = os.environ.get("INFERENCE_MODEL_PATH", "Qwen/Qwen2.5-1.5B")
+    revision = os.environ.get("INFERENCE_MODEL_REVISION") or None
     adapter_path = os.environ.get("INFERENCE_ADAPTER_PATH") or None
     load_in_4bit = os.environ.get("LOAD_IN_4BIT", "false").lower() == "true"
 
@@ -64,6 +65,7 @@ def _load_predictor() -> None:
             adapter_path=adapter_path,
             load_in_4bit=load_in_4bit,
             model_id=model_id,
+            revision=revision,
         )
         _model_load_error = None
         logger.info("Model loaded successfully")
