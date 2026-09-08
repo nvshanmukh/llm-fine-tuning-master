@@ -1,9 +1,8 @@
 """
-Core training module for LoRA and QLoRA fine-tuning.
+Core training module for LoRA fine-tuning.
 
 Supports:
 - LoRA fine-tuning (full precision: bf16 / fp16 / fp32)
-- QLoRA fine-tuning (4-bit NF4 quantization via bitsandbytes -- requires CUDA)
 - Response-only loss masking (completion-only SFT)
 - MLflow experiment tracking (params, loss curves, memory, artifacts)
 - Gradient checkpointing
@@ -16,9 +15,10 @@ Training uses the plain HuggingFace ``Trainer`` plus PEFT. Tokenization and
 response-only label masking are done explicitly in ``src.training.data`` so the
 code does not depend on TRL's repeatedly-changing SFTTrainer API.
 
-QLoRA (``load_in_4bit``) requires an NVIDIA GPU with a working bitsandbytes
-build. There is deliberately NO silent fallback from QLoRA to CPU / full
-precision: if 4-bit loading cannot run, training aborts with an explicit error.
+4-bit (QLoRA-style) *training* is not a shipped config -- see docs/VALIDATION.md.
+The ``load_in_4bit`` support below is retained for anyone who installs
+bitsandbytes on a CUDA host and sets the flag manually: it aborts with an
+explicit error rather than silently falling back to CPU / full precision.
 """
 from __future__ import annotations
 

@@ -4,14 +4,13 @@
 
 Domain-specific instruction-following LLM for **personal-finance Q&A**, built as
 an end-to-end ML-engineering project: dataset → validation → isolated splits →
-baseline → LoRA / QLoRA → experiment tracking → controlled evaluation → error
-analysis → inference quantization → CLI → FastAPI → Docker.
+baseline → LoRA fine-tuning → experiment tracking → controlled evaluation →
+error analysis → inference quantization → CLI → FastAPI → Docker.
 
 > **Status: `IMPLEMENTATION COMPLETE — FULL EXPERIMENTS PENDING`.**
 > The pipeline is implemented and every inexpensive stage has been executed and
-> verified. The GPU-bound stages (full LoRA/QLoRA training, target-model
-> evaluation, quantization comparison, Docker build) were **not run here** —
-> this machine has no GPU, ~4.8 GB free RAM and Python 3.14. See
+> verified. Training and evaluation of the **1.5B target model** were not run
+> here — this machine has no GPU, ~4.8 GB free RAM and Python 3.14. See
 > [`docs/VALIDATION.md`](docs/VALIDATION.md) for exactly what ran, and
 > [`docs/REQUIREMENTS_MATRIX.md`](docs/REQUIREMENTS_MATRIX.md) for per-requirement
 > evidence. **No performance numbers are claimed until measured.**
@@ -41,7 +40,7 @@ prepare_data.py ──> data/processed/{train,validation,test}.json
    │   ─ TEST split carved out FIRST ─ leakage assertion)
    ▼
 train.py ──> src/training/trainer.py
-   │   HF Trainer + PEFT LoRA/QLoRA, response-only label masking
+   │   HF Trainer + PEFT LoRA, response-only label masking
    │   (src/training/data.py), MLflow tracking (sqlite:///mlflow.db)
    │   ──> experiments/<name>/final_model/  (PEFT adapter)
    ▼
@@ -53,11 +52,10 @@ evaluate.py
    │       comparison_table.md/json
    ▼
 judge_eval.py (optional)   ── blinded pairwise LLM-as-judge (A/B swapped), OpenAI-compatible
-quantize_compare.py        ── fp vs torch-int8 (CPU) vs bnb 4/8-bit (CUDA), same test rows
+quantize_compare.py        ── fp vs torch dynamic-int8 (CPU); int8/int4 optional (bitsandbytes)
    ▼
 src/api/main.py  ── FastAPI: GET /health, POST /generate, POST /evaluate
 Dockerfile        ── CPU inference image (non-root, HF cache volume, healthcheck = readiness)
-Dockerfile.train  ── CUDA training image (adds bitsandbytes)
 ```
 
 ---
@@ -82,7 +80,7 @@ Dockerfile.train  ── CUDA training image (adds bitsandbytes)
 Regenerate everything (deterministic, ~2 min, CPU):
 
 ```bash
-python scripts/prepare_data.py --model-name Qwen/Qwen2.5-1.5B --max-seq-len 512 --seed 42
+python scripts/prepare_data.py --seed 42
 ```
 
 Provenance artifacts (`data/processed/stats.json`, `splits_manifest.json`,
@@ -108,30 +106,28 @@ Prompt template (`src/data/prompt_template.py`) — Alpaca instruction wrapped i
 Qwen ChatML; `RESPONSE_TAG = "<|im_start|>assistant\n"` marks where the loss
 starts (everything before it is masked to `-100`).
 
-### LoRA / QLoRA config (`configs/lora.yaml`, `configs/qlora.yaml`)
+### LoRA config (`configs/lora.yaml`, inherits `configs/base.yaml`)
 
 `r=16, alpha=32, dropout=0.05`, targets
 `q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj`; 3 epochs, effective
-batch 16, lr 2e-4, cosine schedule. QLoRA adds 4-bit NF4 + double quant via
-bitsandbytes. `configs/` composes with a lightweight `defaults:` merge
-(`base.yaml` first, then overrides).
+batch 16, lr 2e-4, cosine schedule. `configs/` composes with a lightweight
+`defaults:` merge (`base.yaml` first, then overrides). Training uses the plain HF
+`Trainer` + an explicit response-only-masking collator (`src/training/data.py`).
 
-QLoRA **aborts with an explicit error** if no CUDA GPU / bitsandbytes is present
-— it never silently degrades to CPU or full precision.
+`configs/smoke.yaml` is a CPU-friendly plumbing config (tiny model, a few steps).
 
 ---
 
 ## Results
 
-**PENDING — not measured on this host.** The base/LoRA/QLoRA/quantized table is
+**PENDING — not measured on this host.** The base/LoRA/quantized table is
 populated only by real runs; see the reproduction commands below.
 
-| Model | Trainable params | Train time | Peak GPU mem | ROUGE-L | BLEU-4 | BERTScore F1 | Latency p50 / p95 |
+| Model | Trainable params | Train time | Peak mem | ROUGE-L | BLEU-4 | BERTScore F1 | Latency p50 / p95 |
 |---|---|---|---|---|---|---|---|
 | Base (zero-shot) | — | — | PENDING | PENDING | PENDING | PENDING | PENDING |
 | LoRA (r=16) | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
-| QLoRA (r=16) | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
-| QLoRA + 4-bit inference | — | — | PENDING | PENDING | PENDING | PENDING | PENDING |
+| LoRA + int8 inference | — | — | PENDING | PENDING | PENDING | PENDING | PENDING |
 
 The comparison table is generated from
 `experiments/eval_results/comparison_table.md` — do not hand-edit it.
@@ -141,20 +137,21 @@ The comparison table is generated from
 | Check | Level | Outcome |
 |---|---|---|
 | `pytest` | L1 | 105 passed |
-| `ruff check .` | L1 | clean |
+| `ruff check .` · `mypy src scripts` | L1 | clean |
 | Full data preparation (real dataset + Qwen2.5-1.5B tokenizer) | L3 (data) | numbers in the Dataset table |
 | Response-only label masking | L2 | verified with the real Qwen tokenizer |
 | Real inference path (`FinanceLLMPredictor`) | L1 | PASS (`sshleifer/tiny-gpt2`) |
 | LoRA training loop | L2 | `Qwen/Qwen2.5-0.5B`, CPU — real optimizer steps, 0.22% trainable, adapter saved + reload/merge verified, MLflow logged |
 | Evaluation + error-analysis pipeline | L2 | base vs LoRA on fixed test `sample_id`s, per-example dump, bootstrap CI, paired diff, `--from-predictions` recompute matches |
+| Inference quantization (fp32 vs CPU dynamic-int8) | L2 | size ×0.53, latency ×0.66, ROUGE-L −0.197 on 0.5B/n=3 (honest negative result) |
 
 ---
 
 ## Evaluation protocol
 
-- Base, LoRA and QLoRA are scored on the **same** test `sample_id`s (0-based row
-  index in `test.json`), same prompt template, same decoding (**greedy by
-  default**, `temperature=0.0`).
+- Base and LoRA are scored on the **same** test `sample_id`s (0-based row index
+  in `test.json`), same prompt template, same decoding (**greedy by default**,
+  `temperature=0.0`).
 - `experiments/eval_results/<model>_predictions.jsonl` is the source of truth;
   every aggregate in the report is recomputed from it
   (`python scripts/evaluate.py --from-predictions <file>`).
@@ -184,7 +181,7 @@ list. The automatic categorizer is heuristic and surface-level
 `formatting_failure`, `instruction_failure`, `hallucination`-by-repetition,
 `acceptable`); `incorrect_reasoning` is deliberately left to human / LLM review.
 
-### Quantization
+### Inference quantization
 
 `scripts/quantize_compare.py` runs the **same** test examples (greedy) through
 the model in several precisions and reports quality / serialized size / latency:
@@ -193,13 +190,13 @@ the model in several precisions and reports quality / serialized size / latency:
 |---|---|---|
 | `fp` | — | baseline |
 | `dynamic_int8` | CPU only (torch) | **measured** — see below |
-| `int8` / `int4` | CUDA + bitsandbytes | not run here (recorded as `unavailable`, never silently substituted) |
+| `int8` / `int4` | `pip install bitsandbytes` + CUDA | optional; recorded as `unavailable` if absent, never silently substituted |
 
 **Measured (L2, `Qwen/Qwen2.5-0.5B`, n=3, CPU — plumbing scale, not a benchmark):**
 fp32 → torch `dynamic_int8`: size ×0.53, latency ×0.66, **ROUGE-L −0.197
 (quality regressed badly)**. Naive dynamic int8 without calibration is a poor
-tradeoff here; NF4/GPTQ typically degrade far less. Re-run on CUDA with n≥200
-before concluding anything (`docs/PROVENANCE.md` RUN 4).
+tradeoff here; NF4/GPTQ typically degrade far less. Re-run with n≥200 before
+concluding anything (`docs/PROVENANCE.md` RUN 4).
 
 ---
 
@@ -215,7 +212,7 @@ python scripts/inference.py --real-smoke-test
 # a single question against the base model
 python scripts/inference.py -i "What is the difference between a mutual fund and an ETF?"
 
-# with a fine-tuned adapter
+# with the fine-tuned adapter
 python scripts/inference.py -i "Explain compound interest" \
   --adapter-path experiments/lora/final_model
 
@@ -233,7 +230,7 @@ uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 |---|---|
 | `GET /health` | 200 + model info **only when a model is loaded**; 503 otherwise (readiness) |
 | `POST /generate` | `{instruction, input_context?, max_new_tokens?, temperature?, top_p?, do_sample?}` → response + latency + token counts |
-| `POST /evaluate` | `{instruction, reference, candidate, ...}` → ROUGE/BLEU/EM (no model needed) |
+| `POST /evaluate` | `{reference, candidate, ...}` → ROUGE/BLEU/EM (no model needed) |
 
 `API_SKIP_MODEL_LOAD=true` starts the server without a model (probes/tests).
 Request bodies are never written to the logs.
@@ -257,44 +254,50 @@ daemon unavailable) — static review only.
 
 ---
 
-## Reproducing the full experiments (needs a GPU)
+## Reproducing the experiments
 
 ```bash
-pip install -r requirements.txt                       # Python 3.11+ recommended for GPU
+pip install -r requirements.txt
 cp .env.example .env                                  # set HF_TOKEN if needed
 
 python scripts/prepare_data.py --seed 42              # ~2 min CPU
 
-python scripts/train.py --config configs/lora.yaml    # ~1–2 h on a T4
-python scripts/train.py --config configs/qlora.yaml   # needs CUDA bitsandbytes
+# LoRA on the 1.5B target -- needs a GPU (~12 GB VRAM) or a high-RAM machine.
+python scripts/train.py --config configs/lora.yaml
 
-python scripts/evaluate.py --compare-all --num-samples 200   # base + lora + qlora
+# LoRA plumbing run that fits on a CPU laptop (tiny model, few steps):
+python scripts/train.py --config configs/smoke.yaml --max-train-samples 200
+
+python scripts/evaluate.py --compare-all --num-samples 200   # base + lora
 python scripts/train.py --config configs/lora.yaml --ablation
 
 # optional
 JUDGE_API_BASE=... JUDGE_API_KEY=... python scripts/judge_eval.py \
   --base experiments/eval_results/base_predictions.jsonl \
   --finetuned experiments/eval_results/lora_predictions.jsonl
+python scripts/quantize_compare.py --model-path Qwen/Qwen2.5-1.5B \
+  --adapter-path experiments/lora/final_model --modes fp,dynamic_int8
 
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 pytest -q
 ```
 
-### Hardware (ESTIMATED — replace with MEASURED after a run)
+### Hardware
 
-| Task | Min VRAM | Notes |
+| Task | Needs | Notes |
 |---|---|---|
 | Data prep | CPU only | ~2 min |
-| Base inference (1.5B) | ~6 GB RAM or 4 GB VRAM | fp32 OOMs at 4.8 GB |
-| LoRA fine-tuning | ~12 GB VRAM | bf16/fp16 |
-| QLoRA fine-tuning | ~6 GB VRAM | 4-bit NF4, CUDA only |
-| Inference API (4-bit) | ~2 GB VRAM | CUDA only |
+| Smoke LoRA (`configs/smoke.yaml`, Qwen2.5-0.5B) | CPU, ~2 GB RAM | plumbing only |
+| Base inference (1.5B) | ~6 GB RAM or 4 GB VRAM | fp32 OOMs at 4.8 GB free |
+| LoRA fine-tuning (1.5B) | ~12 GB VRAM, or a high-RAM CPU box (slow) | bf16/fp16 on GPU |
+| Inference API (int8) | `pip install bitsandbytes` + CUDA | optional |
 
 ---
 
 ## Limitations
 
-- **Not run at scale here** — see status banner. All quality numbers are PENDING.
+- **The 1.5B experiments have not been run here** — see status banner. All
+  quality numbers are PENDING.
 - finance-alpaca outputs are GPT-4-generated; high coverage, not guaranteed
   expert-grade. US-centric skew.
 - Dedup is exact + normalized only; paraphrase near-duplicates may remain.
@@ -306,9 +309,8 @@ pytest -q
 
 ## Future work
 
-- Pin model/tokenizer commit SHAs in configs.
-- Run the full LoRA/QLoRA/ablation matrix on a GPU and fill the results table
-  from artifacts.
+- Run the LoRA + ablation matrix on a GPU (or high-RAM box) and fill the results
+  table from artifacts.
 - Human-calibrate the LLM judge; add MinHash paraphrase dedup.
 - GGUF export for CPU deployment; SSE streaming in the API.
 
@@ -317,7 +319,7 @@ pytest -q
 Not written yet — **on purpose**. Every number a bullet would need (ROUGE-L
 delta, trainable-parameter %, training time, latency, memory saving) is `PENDING`
 until the L3 runs happen. Fill them from `experiments/eval_results/comparison_table.md`
-and the MLflow run once the GPU experiments complete; do not estimate them.
+and the MLflow run once those experiments complete; do not estimate them.
 
 ## License
 

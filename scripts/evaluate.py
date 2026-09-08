@@ -22,10 +22,7 @@ Usage:
     # Fine-tuned LoRA
     python scripts/evaluate.py --model-type lora --adapter-path ./experiments/lora/final_model
 
-    # QLoRA (4-bit base)
-    python scripts/evaluate.py --model-type qlora --adapter-path ./experiments/qlora/final_model --4bit
-
-    # Full comparison: base + every adapter found under ./experiments/
+    # Full comparison: base + the LoRA adapter under ./experiments/
     python scripts/evaluate.py --compare-all --num-samples 200
 
     # Recompute metrics/report from an existing predictions file (no model needed)
@@ -350,12 +347,12 @@ def _run_comparison(
         {"model_type": "base", "model_path": DEFAULT_BASE_MODEL,
          "adapter_path": None, "load_in_4bit": False},
     ]
-    for exp_type, use_4bit in [("lora", False), ("qlora", True)]:
+    for exp_type in ("lora",):
         adapter_path = Path(f"./experiments/{exp_type}/final_model")
         if adapter_path.exists():
             model_configs.append({
                 "model_type": exp_type, "model_path": DEFAULT_BASE_MODEL,
-                "adapter_path": str(adapter_path), "load_in_4bit": use_4bit,
+                "adapter_path": str(adapter_path), "load_in_4bit": False,
             })
             logger.info(f"Found {exp_type} adapter: {adapter_path}")
         else:
