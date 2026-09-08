@@ -18,6 +18,7 @@ train-model = "scripts.train:app"
 evaluate-model = "scripts.evaluate:app"
 finance-infer = "scripts.inference:app"
 judge-eval = "scripts.judge_eval:app"
+quantize-compare = "scripts.quantize_compare:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
