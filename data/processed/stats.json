@@ -1,0 +1,63 @@
+{
+  "dataset_source": "gbharti/finance-alpaca",
+  "license": "Apache-2.0 (code) / CC-BY-4.0 (data) - see dataset card",
+  "created_utc": "2026-09-08T02:39:24Z",
+  "seed": 42,
+  "environment": {
+    "python": "3.14.4",
+    "platform": "Windows-11-10.0.26200-SP0"
+  },
+  "splits": {
+    "train": {
+      "count": 44353,
+      "output_words_mean": 59.9,
+      "output_words_median": 46.0,
+      "output_words_p95": 178.0,
+      "has_input_fraction": 0.3059,
+      "token_length_mean": 147.2,
+      "token_length_p95": 295.0,
+      "token_length_max": 512
+    },
+    "validation": {
+      "count": 2609,
+      "output_words_mean": 61.0,
+      "output_words_median": 47.0,
+      "output_words_p95": 183.0,
+      "has_input_fraction": 0.2967,
+      "token_length_mean": 148.3,
+      "token_length_p95": 299.0,
+      "token_length_max": 506
+    },
+    "test": {
+      "count": 5218,
+      "output_words_mean": 57.4,
+      "output_words_median": 44.0,
+      "output_words_p95": 168.14999999999964,
+      "has_input_fraction": 0.316,
+      "token_length_mean": 144.0,
+      "token_length_p95": 281.14999999999964,
+      "token_length_max": 512
+    }
+  },
+  "total_examples": 52180,
+  "raw_examples": 68912,
+  "examples_after_filtering": 52180,
+  "token_length_stats": {
+    "tokenizer": "Qwen/Qwen2.5-1.5B",
+    "max_seq_length": 512,
+    "count_pre_filter": 52825,
+    "mean": 152.8,
+    "median": 131.0,
+    "p90": 240.0,
+    "p95": 319.0,
+    "p99": 543.0,
+    "max": 1013,
+    "truncation_rate_at_max_seq_length": 0.0122,
+    "removed_by_token_filter": 645
+  },
+  "duplicates": {
+    "exact_duplicates_removed": 10026,
+    "normalized_near_duplicates_detected": 0,
+    "normalized_near_duplicate_note": "normalized key ignores case/punctuation/whitespace over instruction+input+output; these are counted but NOT removed by default"
+  }
+}

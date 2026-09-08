@@ -80,6 +80,15 @@ def main(
         "--smoke-test",
         help="Validate the pipeline without downloading or loading any model.",
     ),
+    real_smoke_test: bool = typer.Option(
+        False,
+        "--real-smoke-test",
+        help="Load a small real model and run one generation through FinanceLLMPredictor.",
+    ),
+    smoke_model: str = typer.Option(
+        "sshleifer/tiny-gpt2",
+        help="Small model id to use for --real-smoke-test (plumbing only).",
+    ),
     log_level: str = typer.Option("INFO", help="Log level."),
 ) -> None:
     """Run inference with the Finance LLM."""
@@ -88,6 +97,10 @@ def main(
 
     if smoke_test:
         _run_smoke_test()
+        return
+
+    if real_smoke_test:
+        _run_real_smoke_test(smoke_model)
         return
 
     from src.data.prompt_template import format_for_inference
@@ -191,6 +204,37 @@ def _interactive_loop(predictor, gen_config) -> None:
             except (KeyboardInterrupt, EOFError):
                 print("\nInterrupted. Goodbye!")
                 break
+
+
+def _run_real_smoke_test(model_id: str) -> None:
+    """
+    Level-2 style check: exercise the *real* FinanceLLMPredictor code path
+    (transformers load -> tokenize -> generate -> decode -> latency) with a
+    small model. This proves the inference plumbing works end to end; it does
+    NOT say anything about the quality of the target 1.5B model.
+    """
+    from src.data.prompt_template import format_for_inference
+    from src.inference.predict import FinanceLLMPredictor, GenerationConfig
+
+    logger.info(f"Real inference smoke test with model: {model_id}")
+    predictor = FinanceLLMPredictor(model_path=model_id, model_id="real-smoke", device_map=None)
+    predictor.warmup(GenerationConfig(max_new_tokens=4))
+
+    prompt = format_for_inference({"instruction": "What is a mutual fund?", "input": ""})
+    result = predictor.generate(prompt, GenerationConfig(max_new_tokens=16, do_sample=False))
+
+    assert isinstance(result.response, str)
+    assert result.input_tokens > 0
+    assert result.output_tokens > 0
+    assert result.latency_ms >= 0
+    logger.info(
+        f"[PASS] real inference smoke: {result.input_tokens} in -> "
+        f"{result.output_tokens} out in {result.latency_ms:.0f} ms"
+    )
+    logger.info(f"model_size_mb={predictor.model_size_mb}")
+    logger.info("=" * 60)
+    logger.info("REAL INFERENCE SMOKE TEST PASSED (plumbing only, not model quality)")
+    logger.info("=" * 60)
 
 
 def _run_smoke_test() -> None:

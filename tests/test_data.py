@@ -22,11 +22,14 @@ from datasets import Dataset
 
 from src.data.make_dataset import (
     _hash_example,
+    _normalized_key,
     _verify_no_overlap,
+    count_normalized_near_duplicates,
     create_splits,
     deduplicate,
     filter_by_output_length,
     filter_empty_fields,
+    save_splits,
 )
 from src.data.prompt_template import (
     SYSTEM_PROMPT,
@@ -162,6 +165,41 @@ class TestDatasetFiltering:
         h1 = _hash_example("What is X?", "")
         h2 = _hash_example("what is x?", "")
         assert h1 == h2
+
+    def test_normalized_near_duplicate_detection(self):
+        data = Dataset.from_list([
+            {"instruction": "What is a bond?", "input": "", "output": "A loan to a borrower."},
+            {"instruction": "What is a bond???", "input": "", "output": "A loan  to a borrower!"},
+            {"instruction": "What is a stock?", "input": "", "output": "Ownership in a company."},
+        ])
+        # exact (instruction,input) dedup would NOT catch rows 0/1 (different punctuation)
+        _, exact = deduplicate(data)
+        assert exact == 0
+        # normalized key ignores punctuation/whitespace -> 1 collision
+        assert count_normalized_near_duplicates(data) == 1
+
+    def test_normalized_key_ignores_punctuation(self):
+        assert _normalized_key("A, B!", "", "c.") == _normalized_key("a b", "", "C")
+
+
+class TestArtifacts:
+    def test_save_splits_writes_provenance_files(self, tmp_path):
+        ds = Dataset.from_list([
+            {"instruction": f"Q{i}", "input": "", "output": f"answer number {i} here"}
+            for i in range(60)
+        ])
+        splits = create_splits(ds, test_fraction=0.1, val_fraction=0.05, seed=42)
+        save_splits(splits, tmp_path, seed=42, fractions={"test": 0.1})
+
+        for name in ("stats.json", "splits_manifest.json", "leakage_report.json",
+                     "train.json", "validation.json", "test.json"):
+            assert (tmp_path / name).exists(), name
+
+        import json
+        leak = json.loads((tmp_path / "leakage_report.json").read_text())
+        assert leak["leakage_detected"] is False
+        manifest = json.loads((tmp_path / "splits_manifest.json").read_text())
+        assert set(manifest["split_membership_sha256"]) == {"train", "validation", "test"}
 
 
 # ---------------------------------------------------------------------------

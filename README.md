@@ -1,502 +1,309 @@
 # Finance LLM Fine-Tuning & Evaluation Platform
 
-> **Domain-Specific Instruction-Following LLM** via QLoRA on `Qwen/Qwen2.5-1.5B`  
-> A production-quality ML engineering portfolio project demonstrating the complete LLM fine-tuning lifecycle.
+Domain-specific instruction-following LLM for **personal-finance Q&A**, built as
+an end-to-end ML-engineering project: dataset → validation → isolated splits →
+baseline → LoRA / QLoRA → experiment tracking → controlled evaluation → error
+analysis → inference quantization → CLI → FastAPI → Docker.
+
+> **Status: `IMPLEMENTATION COMPLETE — FULL EXPERIMENTS PENDING`.**
+> The pipeline is implemented and every inexpensive stage has been executed and
+> verified. The GPU-bound stages (full LoRA/QLoRA training, target-model
+> evaluation, quantization comparison, Docker build) were **not run here** —
+> this machine has no GPU, ~4.8 GB free RAM and Python 3.14. See
+> [`docs/VALIDATION.md`](docs/VALIDATION.md) for exactly what ran, and
+> [`docs/REQUIREMENTS_MATRIX.md`](docs/REQUIREMENTS_MATRIX.md) for per-requirement
+> evidence. **No performance numbers are claimed until measured.**
 
 ---
 
-## Overview
+## Why fine-tuning (not just prompting or RAG)
 
-This project fine-tunes `Qwen/Qwen2.5-1.5B` — a state-of-the-art 1.5B parameter open-source model — on the `gbharti/finance-alpaca` financial Q&A dataset using parameter-efficient fine-tuning (PEFT). The system demonstrates the complete pipeline from raw data to a deployed inference API.
-
-**What this project demonstrates:**
-- Data preprocessing with rigorous leakage prevention
-- Baseline measurement *before* claiming improvement
-- Controlled LoRA vs QLoRA experiments with tracked hyperparameters
-- Quantitative evaluation (ROUGE, BLEU, BERTScore) + qualitative error analysis
-- LLM-as-a-Judge evaluation with documented limitations
-- Ablation study: does LoRA rank materially affect performance?
-- Post-training quantization comparison
-- Production FastAPI + Docker inference service
-
----
-
-## Why Fine-Tuning? (Not just RAG or Prompting)
-
-For a **financial advisor assistant**, vanilla prompting or RAG has specific limitations:
-
-| Approach | Limitation |
+| Approach | Limitation for a finance-advisor assistant |
 |---|---|
-| **Prompting only** | Base LLMs lack deep domain calibration; responses are often verbose, generic, or hedge excessively |
-| **RAG** | Requires a curated knowledge base; latency increases; doesn't improve *reasoning style* or instruction-following format |
-| **Fine-tuning** | Directly adapts response style, tone, length, and domain-specific reasoning to match curated expert examples |
+| Prompting only | base models hedge, ramble, and drift from a consistent answer format |
+| RAG | needs a curated KB, adds latency, does not change *response style / instruction-following* |
+| Fine-tuning (this project) | directly adapts answer style, length and domain phrasing to curated examples |
 
-RAG and fine-tuning are **complementary**, not mutually exclusive. This project isolates the fine-tuning contribution specifically.
+RAG and fine-tuning are complementary. This project isolates the **fine-tuning**
+contribution and measures whether it actually helps (an honest negative result
+is an acceptable outcome).
 
 ---
 
-## Architecture
+## Architecture (as actually implemented)
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      DATA PIPELINE                                  │
-│  gbharti/finance-alpaca                                             │
-│  ↓ filter_empty_fields                                              │
-│  ↓ filter_by_output_length (5–600 words)                           │
-│  ↓ filter_by_token_length (<= 512 tokens)                           │
-│  ↓ deduplicate (MD5 hash of instruction+input)                      │
-│  ↓ create_splits [TEST carved out FIRST → then val/train]           │
-│  ┌────────────┬──────────────┬───────────┐                          │
-│  │  train.json│ validation.  │  test.json│  ← isolated, never       │
-│  │  (~85%)    │   json (~5%) │  (10%)    │    seen during training   │
-│  └────────────┴──────────────┴───────────┘                          │
-└─────────────────────────────────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────────────────────────────────┐
-│                      BASELINE EVALUATION                            │
-│  Qwen/Qwen2.5-1.5B (base) → generate on test.json                 │
-│  → ROUGE-1/2/L, BLEU-4, BERTScore, latency, GPU memory            │
-│  → ESTABLISHES BASELINE (no claims of improvement without this)    │
-└─────────────────────────────────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────────────────────────────────┐
-│                      FINE-TUNING EXPERIMENTS                        │
-│                                                                     │
-│  Experiment A: Base model (zero-shot)                               │
-│  Experiment B: LoRA (r=16, bfloat16, 3 epochs)                     │
-│  Experiment C: QLoRA (r=16, 4-bit NF4, 3 epochs)                   │
-│                                                                     │
-│  Ablation: r={8,16,32} × lr={1e-4,2e-4,5e-4} × epochs={2,3}       │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  MLflow Tracking: config, loss curves, metrics, GPU memory   │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────────────────────────────────┐
-│                      EVALUATION & ANALYSIS                          │
-│  Automatic: ROUGE-1/2/L, BLEU-4, BERTScore F1, Exact Match        │
-│  LLM-as-Judge: Correctness, Relevance, Completeness (1–5 scale)   │
-│  Error Analysis: hallucination / incomplete / irrelevant / etc.    │
-│  Quantization: Compare full-precision vs int8 inference            │
-└─────────────────────────────────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────────────────────────────────┐
-│                      DEPLOYMENT                                     │
-│  FastAPI: POST /generate | POST /evaluate | GET /health            │
-│  Docker: Multi-stage image (inference only, no training deps)      │
-│  docker-compose: Single-command deployment with HF cache volume    │
-└─────────────────────────────────────────────────────────────────────┘
+prepare_data.py ──> data/processed/{train,validation,test}.json
+   │                 + stats.json, splits_manifest.json, leakage_report.json
+   │  (HF finance-alpaca ─ empty/length/token filters ─ exact+normalized dedup
+   │   ─ TEST split carved out FIRST ─ leakage assertion)
+   ▼
+train.py ──> src/training/trainer.py
+   │   HF Trainer + PEFT LoRA/QLoRA, response-only label masking
+   │   (src/training/data.py), MLflow tracking (sqlite:///mlflow.db)
+   │   ──> experiments/<name>/final_model/  (PEFT adapter)
+   ▼
+evaluate.py
+   │   FinanceLLMPredictor generates on fixed test sample_ids (greedy)
+   │   ──> experiments/eval_results/<model>_predictions.jsonl   (source of truth)
+   │       <model>_eval_report.json   (ROUGE/BLEU/BERTScore/EM + bootstrap CI + latency p50/p95)
+   │       error_analysis_<ft>_vs_base.json   (base vs fine-tuned, from saved predictions)
+   │       comparison_table.md/json
+   ▼
+judge_eval.py (optional)  ── blinded pairwise LLM-as-judge (A/B swapped), OpenAI-compatible
+quantize.py               ── post-training 4/8-bit inference comparison (CUDA)
+   ▼
+src/api/main.py  ── FastAPI: GET /health, POST /generate, POST /evaluate
+Dockerfile        ── CPU inference image (non-root, HF cache volume, healthcheck = readiness)
+Dockerfile.train  ── CUDA training image (adds bitsandbytes)
 ```
 
 ---
 
-## Dataset
+## Dataset — `gbharti/finance-alpaca`
 
-| Attribute | Value |
+| Attribute | Value (MEASURED unless noted) |
 |---|---|
-| **Source** | [`gbharti/finance-alpaca`](https://huggingface.co/datasets/gbharti/finance-alpaca) |
-| **License** | Apache 2.0 / CC-BY-4.0 |
-| **Domain** | Personal finance, investing, economics, accounting |
-| **Raw size** | ~68,900 examples |
-| **After filtering** | ~53,000–58,000 examples |
-| **Format** | Alpaca: `{instruction, input, output}` |
-| **Max seq length** | 512 tokens (Qwen2.5-1.5B tokenizer) |
+| Source | [`gbharti/finance-alpaca`](https://huggingface.co/datasets/gbharti/finance-alpaca) |
+| License | Apache-2.0 (code) / CC-BY-4.0 (data) — see dataset card |
+| Format | Alpaca `{instruction, input, output}` |
+| Raw examples | **68,912** |
+| After empty-field filter | 68,911 (−1) |
+| After output length 5–600 words | 62,851 (−6,060) |
+| After exact `(instruction,input)` dedup | 52,825 (−10,026) |
+| After token-length ≤ 512 filter | **52,180** (−645; truncation rate at 512 = **1.22 %**) |
+| Normalized near-duplicates | 0 (counted, not removed) |
+| Splits (seed 42) | train **44,353** · validation **2,609** · test **5,218** |
+| Cross-split leakage | 0 / 0 / 0 |
+| Token length (full training text) | mean 152.8 · median 131 · p95 319 · p99 543 · max 1013 |
 
-**Filtering steps:**
-1. Remove empty `instruction` or `output`
-2. Remove outputs with <5 or >600 words
-3. Remove examples where full prompt+response exceeds 512 tokens
-4. Deduplicate on `MD5(instruction.lower() + input.lower())`
-5. Test split **first** (prevents leakage), then val/train
+Regenerate everything (deterministic, ~2 min, CPU):
+
+```bash
+python scripts/prepare_data.py --model-name Qwen/Qwen2.5-1.5B --max-seq-len 512 --seed 42
+```
+
+Provenance artifacts (`data/processed/stats.json`, `splits_manifest.json`,
+`leakage_report.json`) are committed; the large split JSONs are git-ignored and
+regenerable.
+
+> **Data-quality note:** the 10,026 removed "duplicates" share an
+> `(instruction, input)` with another row but often have a *different* `output`
+> (same question, different answer). The pipeline keeps the first occurrence.
 
 ---
 
-## Methodology
+## Model — `Qwen/Qwen2.5-1.5B`
 
-### Model: Qwen/Qwen2.5-1.5B
+- 1.5B params, Apache-2.0, first-class `transformers`/`peft` support.
+- ChatML special tokens (`<|im_start|>` / `<|im_end|>`) are in the tokenizer.
+- **Not yet pinned to a commit SHA** — add `revision:` to the configs before a
+  publishable run.
 
-Selected because:
-- **1.5B parameters**: fits in <3GB VRAM (bf16), <1GB VRAM (4-bit QLoRA)
-- **State-of-the-art**: outperforms similar-size models on instruction-following benchmarks (2024)
-- **HuggingFace native**: full transformers + PEFT support
-- **Apache 2.0 license**: commercially usable
-- **ChatML tokens**: `<|im_start|>` / `<|im_end|>` natively supported
+Prompt template (`src/data/prompt_template.py`) — Alpaca instruction wrapped in
+Qwen ChatML; `RESPONSE_TAG = "<|im_start|>assistant\n"` marks where the loss
+starts (everything before it is masked to `-100`).
 
-### Prompt Template (Alpaca + Qwen ChatML)
+### LoRA / QLoRA config (`configs/lora.yaml`, `configs/qlora.yaml`)
 
-```
-<|im_start|>system
-You are a knowledgeable financial advisor assistant. Answer questions accurately,
-concisely, and in plain English. Do not make up numbers or facts. If you are unsure, say so.
-<|im_end|>
-<|im_start|>user
-### Instruction:
-{instruction}
+`r=16, alpha=32, dropout=0.05`, targets
+`q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj`; 3 epochs, effective
+batch 16, lr 2e-4, cosine schedule. QLoRA adds 4-bit NF4 + double quant via
+bitsandbytes. `configs/` composes with a lightweight `defaults:` merge
+(`base.yaml` first, then overrides).
 
-### Input:
-{input}
-<|im_end|>
-<|im_start|>assistant
-{output}<|im_end|>
-```
-
-### LoRA Configuration
-
-```yaml
-r: 16
-lora_alpha: 32
-lora_dropout: 0.05
-target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
-```
-
-Trainable parameters: ~5.5M / 1,543M total (**0.36% of parameters**).
-
-### QLoRA Configuration
-
-Same as LoRA but base model loaded in **4-bit NF4** via `bitsandbytes`:
-```yaml
-bnb_4bit_quant_type: nf4
-bnb_4bit_compute_dtype: bfloat16
-bnb_4bit_use_double_quant: true
-```
-
----
-
-## Experiments
-
-### Hyperparameter Configuration
-
-All experiments are fully configuration-driven (see `configs/`):
-
-```yaml
-# configs/qlora.yaml (excerpt)
-training:
-  num_train_epochs: 3
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 4   # effective batch = 16
-  learning_rate: 2.0e-4
-  lr_scheduler_type: cosine
-  warmup_ratio: 0.03
-  weight_decay: 0.01
-  bf16: true
-  gradient_checkpointing: true
-  max_seq_length: 512
-```
-
-### Ablation Study
-
-The ablation explores the question:
-> **"Does increasing LoRA rank materially improve task performance relative to the additional trainable parameters?"**
-
-Grid searched:
-- LoRA rank `r` ∈ {8, 16, 32}
-- Learning rate ∈ {1e-4, 2e-4, 5e-4}  
-- Epochs ∈ {2, 3}
+QLoRA **aborts with an explicit error** if no CUDA GPU / bitsandbytes is present
+— it never silently degrades to CPU or full precision.
 
 ---
 
 ## Results
 
-> **Note:** The results table below will be populated after training runs complete on a cloud GPU. Placeholder values are marked `[PENDING]`. The code is fully functional and has been tested end-to-end with a smoke test on CPU.
+**PENDING — not measured on this host.** The base/LoRA/QLoRA/quantized table is
+populated only by real runs; see the reproduction commands below.
 
-| Model | Trainable Params | Training Time | GPU Memory | ROUGE-L | BLEU-4 | BERTScore F1 | Latency (ms) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Base (zero-shot) | — | — | [PENDING] | [PENDING] | [PENDING] | [PENDING] | [PENDING] |
-| LoRA (r=16) | ~5.5M (0.36%) | [PENDING] | [PENDING] | [PENDING] | [PENDING] | [PENDING] | [PENDING] |
-| QLoRA (r=16) | ~5.5M (0.36%) | [PENDING] | [PENDING] | [PENDING] | [PENDING] | [PENDING] | [PENDING] |
+| Model | Trainable params | Train time | Peak GPU mem | ROUGE-L | BLEU-4 | BERTScore F1 | Latency p50 / p95 |
+|---|---|---|---|---|---|---|---|
+| Base (zero-shot) | — | — | PENDING | PENDING | PENDING | PENDING | PENDING |
+| LoRA (r=16) | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
+| QLoRA (r=16) | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
+| QLoRA + 4-bit inference | — | — | PENDING | PENDING | PENDING | PENDING | PENDING |
 
-**Update this table with real values after running on GPU. Never fabricate numbers.**
+The comparison table is generated from
+`experiments/eval_results/comparison_table.md` — do not hand-edit it.
 
----
+### What *has* run (see `docs/VALIDATION.md` + `docs/PROVENANCE.md`)
 
-## Error Analysis
-
-Error categories:
-- `hallucination` — factual claims not grounded in the reference
-- `incomplete_answer` — response cut off or too short (<10 words)
-- `incorrect_reasoning` — logical errors in explanation
-- `instruction_failure` — does not follow instruction format
-- `irrelevant_output` — off-topic response
-- `formatting_failure` — structural issues
-- `domain_knowledge_gap` — missing specific financial terminology
-- `acceptable` — reasonable response
-
-Error analysis results are saved to `experiments/eval_results/{model}_error_analysis.json`.
-
----
-
-## LLM-as-a-Judge Evaluation
-
-The project implements an optional LLM-as-a-Judge evaluation layer (see `src/evaluation/judge.py`).
-
-**Dimensions evaluated (1–5 scale):**
-- Correctness
-- Relevance
-- Completeness
-- Instruction Following
-- Hallucination Score (5 = no hallucination)
-
-**Documented Limitations:**
-1. LLM judges exhibit **verbosity bias** — longer answers are often scored higher regardless of quality.
-2. LLM judge scores are **not ground truth** — treat as a supplementary signal.
-3. Without human annotation as calibration, scores are relative to the judge LLM's own biases.
-4. GPT-4 judges may not accurately evaluate specialized finance terminology.
-5. **Always combine** automatic metrics + LLM judge + qualitative human review.
+| Check | Level | Outcome |
+|---|---|---|
+| `pytest` | L1 | 105 passed |
+| `ruff check .` | L1 | clean |
+| Full data preparation (real dataset + Qwen2.5-1.5B tokenizer) | L3 (data) | numbers in the Dataset table |
+| Response-only label masking | L2 | verified with the real Qwen tokenizer |
+| Real inference path (`FinanceLLMPredictor`) | L1 | PASS (`sshleifer/tiny-gpt2`) |
+| LoRA training loop | L2 | `Qwen/Qwen2.5-0.5B`, CPU — real optimizer steps, 0.22% trainable, adapter saved + reload/merge verified, MLflow logged |
+| Evaluation + error-analysis pipeline | L2 | base vs LoRA on fixed test `sample_id`s, per-example dump, bootstrap CI, paired diff, `--from-predictions` recompute matches |
 
 ---
 
-## Quantization
+## Evaluation protocol
 
-Post-training quantization is implemented in `src/inference/quantize.py`.
+- Base, LoRA and QLoRA are scored on the **same** test `sample_id`s (0-based row
+  index in `test.json`), same prompt template, same decoding (**greedy by
+  default**, `temperature=0.0`).
+- `experiments/eval_results/<model>_predictions.jsonl` is the source of truth;
+  every aggregate in the report is recomputed from it
+  (`python scripts/evaluate.py --from-predictions <file>`).
+- ROUGE-L reports a 95 % bootstrap CI; fine-tuned-vs-base reports a **paired**
+  bootstrap difference (`paired_bootstrap_diff`).
+- Latency: one warm-up generation is discarded, then per-example wall-clock
+  (batch 1, includes tokenize + decode); report shows median and p95 plus a
+  scope note.
+- Metrics: ROUGE-1/2/L, BLEU-4 (smoothed), BERTScore-F1 (`distilbert-base-uncased`),
+  exact match, length stats.
 
-**Comparison:**
-- **Full precision (bfloat16)**: Maximum quality, ~3GB VRAM for 1.5B model
-- **4-bit NF4 (QLoRA inference)**: ~1GB VRAM, typically <3% quality degradation on ROUGE
-- **int8 (bitsandbytes)**: ~1.5GB VRAM, intermediate tradeoff
+### LLM-as-a-judge (optional)
 
-Model size comparison is measured with `compare_model_sizes()` using actual file sizes.
+`scripts/judge_eval.py` runs a **blinded pairwise** comparison (fine-tuned vs
+base), judging each pair in both A/B orders to cancel position bias. The
+candidate models are never used to judge themselves. Without `JUDGE_API_BASE` /
+`JUDGE_API_KEY` it writes a `blocked_missing_credentials` report containing the
+exact rerun command. Known biases (verbosity, not-ground-truth) are recorded in
+the report.
+
+### Error analysis
+
+`error_analysis_<ft>_vs_base.json` is built from the saved predictions and shows
+**both** improvements and regressions (top-5 each) plus a persistent-failure
+list. The automatic categorizer is heuristic and surface-level
+(`incomplete_answer`, `irrelevant_output`, `domain_knowledge_gap`,
+`formatting_failure`, `instruction_failure`, `hallucination`-by-repetition,
+`acceptable`); `incorrect_reasoning` is deliberately left to human / LLM review.
+
+### Quantization
+
+`src/inference/quantize.py` + `FinanceLLMPredictor(load_in_4bit=…)` load the
+selected model in 4-/8-bit and run the **same** examples as the fp comparison.
+Requires CUDA + bitsandbytes; not run here.
 
 ---
 
-## Deployment
-
-### FastAPI Service
+## CLI
 
 ```bash
-# Start the inference API
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000
-
-# Or with Docker
-docker-compose up --build
-```
-
-**Endpoints:**
-
-```
-GET  /health    → Model status, device info, model size
-POST /generate  → Generate financial answer
-POST /evaluate  → Compute ROUGE/BLEU/EM for a prediction/reference pair
-```
-
-**Example request:**
-
-```bash
-curl -X POST http://localhost:8000/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "instruction": "What is the difference between a mutual fund and an ETF?",
-    "max_new_tokens": 256,
-    "temperature": 0.1
-  }'
-```
-
-**Example response:**
-
-```json
-{
-  "response": "A mutual fund is actively managed and priced once per day...",
-  "model": "finetuned-qlora",
-  "latency_ms": 1842,
-  "input_tokens": 87,
-  "output_tokens": 112
-}
-```
-
-### Docker
-
-```bash
-# Build inference image
-docker build -t finance-llm-api .
-
-# Run with local fine-tuned adapter
-docker run -p 8000:8000 \
-  -e INFERENCE_MODEL_PATH=Qwen/Qwen2.5-1.5B \
-  -e INFERENCE_ADAPTER_PATH=/models/qlora \
-  -e LOAD_IN_4BIT=true \
-  -v ./experiments:/models:ro \
-  finance-llm-api
-
-# Build training image (GPU)
-docker build -f Dockerfile.train -t finance-llm-train .
-```
-
----
-
-## Reproducing Experiments
-
-```bash
-# 1. Clone and set up
-git clone <repo>
-cd llm-finetuning-platform
-pip install -r requirements.txt  # or requirements-dev.txt
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env: set HF_TOKEN if needed
-
-# 3. Prepare data
-python scripts/prepare_data.py \
-  --model-name Qwen/Qwen2.5-1.5B \
-  --max-seq-len 512 \
-  --seed 42
-
-# 4. Validate pipeline (no GPU needed)
+# no-model pipeline check
 python scripts/inference.py --smoke-test
 
-# 5. Train LoRA (requires GPU with ≥6GB VRAM)
-python scripts/train.py --config configs/lora.yaml
+# real model-loading check (tiny model, plumbing only)
+python scripts/inference.py --real-smoke-test
 
-# 6. Train QLoRA (requires GPU with ≥4GB VRAM)
-python scripts/train.py --config configs/qlora.yaml
+# a single question against the base model
+python scripts/inference.py -i "What is the difference between a mutual fund and an ETF?"
 
-# 7. Evaluate all models
-python scripts/evaluate.py --compare-all --num-samples 200
+# with a fine-tuned adapter
+python scripts/inference.py -i "Explain compound interest" \
+  --adapter-path experiments/lora/final_model
 
-# 8. Run ablation study
+# interactive loop
+python scripts/inference.py --interactive
+```
+
+## FastAPI
+
+```bash
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | 200 + model info **only when a model is loaded**; 503 otherwise (readiness) |
+| `POST /generate` | `{instruction, input_context?, max_new_tokens?, temperature?, top_p?, do_sample?}` → response + latency + token counts |
+| `POST /evaluate` | `{instruction, reference, candidate, ...}` → ROUGE/BLEU/EM (no model needed) |
+
+`API_SKIP_MODEL_LOAD=true` starts the server without a model (probes/tests).
+Request bodies are never written to the logs.
+
+## Docker (CPU inference)
+
+```bash
+docker build -t finance-llm-api .
+docker run -p 8000:8000 \
+  -e INFERENCE_MODEL_PATH=Qwen/Qwen2.5-1.5B \
+  -e INFERENCE_ADAPTER_PATH=/models/lora/final_model \
+  -v $(pwd)/experiments:/models:ro \
+  -v hf_cache:/app/.cache/huggingface \
+  finance-llm-api
+# or: docker compose up --build
+```
+
+Non-root user, `HF_HOME=/app/.cache/huggingface` (matches the compose volume),
+healthcheck fails whenever `/health` is not 200. **Not built here** (Docker
+daemon unavailable) — static review only.
+
+---
+
+## Reproducing the full experiments (needs a GPU)
+
+```bash
+pip install -r requirements.txt                       # Python 3.11+ recommended for GPU
+cp .env.example .env                                  # set HF_TOKEN if needed
+
+python scripts/prepare_data.py --seed 42              # ~2 min CPU
+
+python scripts/train.py --config configs/lora.yaml    # ~1–2 h on a T4
+python scripts/train.py --config configs/qlora.yaml   # needs CUDA bitsandbytes
+
+python scripts/evaluate.py --compare-all --num-samples 200   # base + lora + qlora
 python scripts/train.py --config configs/lora.yaml --ablation
 
-# 9. View MLflow UI
-mlflow ui --backend-store-uri ./mlruns
+# optional
+JUDGE_API_BASE=... JUDGE_API_KEY=... python scripts/judge_eval.py \
+  --base experiments/eval_results/base_predictions.jsonl \
+  --finetuned experiments/eval_results/lora_predictions.jsonl
 
-# 10. Run tests
-pytest tests/ -v
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+pytest -q
 ```
 
----
+### Hardware (ESTIMATED — replace with MEASURED after a run)
 
-## Hardware Requirements
-
-| Task | Min VRAM | Recommended |
+| Task | Min VRAM | Notes |
 |---|---|---|
-| Data preparation | CPU only | CPU only |
-| Base model inference | 4 GB | 6 GB |
-| LoRA fine-tuning | 6 GB | 16 GB |
-| QLoRA fine-tuning | 4 GB | 8 GB |
-| Inference API (4-bit) | 2 GB | 4 GB |
-
-**Free GPU options for students:**
-- Google Colab T4 (16 GB VRAM) — free tier
-- Kaggle P100 (16 GB VRAM) — free tier
-- Google Colab A100 (40 GB) — Colab Pro
-
----
-
-## Project Structure
-
-```
-llm-finetuning-platform/
-├── data/
-│   ├── raw/                    # HF cache (git-ignored)
-│   ├── processed/              # Filtered, split datasets (JSON)
-│   │   ├── train.json
-│   │   ├── validation.json
-│   │   ├── test.json           # ISOLATED — never used in training
-│   │   └── stats.json          # Dataset statistics card
-│   └── README.md               # Dataset documentation
-│
-├── configs/
-│   ├── base.yaml               # Shared defaults
-│   ├── lora.yaml               # Full-precision LoRA config
-│   ├── qlora.yaml              # 4-bit QLoRA config
-│   └── ablation.yaml           # Ablation sweep grid
-│
-├── src/
-│   ├── data/
-│   │   ├── make_dataset.py     # Data pipeline (download, filter, split)
-│   │   └── prompt_template.py  # Alpaca + Qwen ChatML prompt formatting
-│   ├── training/
-│   │   ├── trainer.py          # LoRA/QLoRA training logic + MLflow
-│   │   └── callbacks.py        # MLflowDetailedCallback
-│   ├── evaluation/
-│   │   ├── metrics.py          # ROUGE, BLEU, BERTScore, EM
-│   │   ├── judge.py            # LLM-as-a-Judge evaluation
-│   │   └── error_analysis.py   # Failure categorization
-│   ├── inference/
-│   │   ├── predict.py          # FinanceLLMPredictor (base + adapter)
-│   │   └── quantize.py         # Post-training quantization
-│   ├── api/
-│   │   ├── main.py             # FastAPI app (lifespan, endpoints)
-│   │   └── schemas.py          # Pydantic request/response models
-│   └── utils/
-│       ├── config_utils.py     # OmegaConf YAML loading
-│       ├── logging_utils.py    # Loguru setup
-│       ├── seed.py             # Reproducibility seeds
-│       └── hardware.py         # GPU/CPU introspection
-│
-├── scripts/
-│   ├── prepare_data.py         # Data prep CLI
-│   ├── train.py                # Training CLI (LoRA/QLoRA/ablation)
-│   ├── evaluate.py             # Evaluation CLI (single/compare-all)
-│   └── inference.py            # Interactive inference CLI + smoke-test
-│
-├── experiments/                # Saved model checkpoints and eval reports
-│   └── eval_results/
-│
-├── tests/
-│   ├── test_data.py            # Data pipeline tests (splits, leakage)
-│   ├── test_evaluation.py      # Metric and error analysis tests
-│   ├── test_api.py             # FastAPI endpoint tests (mocked model)
-│   └── test_inference.py       # Inference pipeline smoke tests
-│
-├── Dockerfile                  # Multi-stage inference image
-├── Dockerfile.train            # GPU training image
-├── docker-compose.yml          # Inference service orchestration
-├── .dockerignore
-├── requirements.txt            # Full training dependencies
-├── requirements-inference.txt  # Lightweight inference-only dependencies
-├── requirements-dev.txt        # Development extras
-├── pyproject.toml              # Build config + tool settings
-├── .env.example                # Environment variable template
-├── .gitignore
-└── README.md                   # This file
-```
+| Data prep | CPU only | ~2 min |
+| Base inference (1.5B) | ~6 GB RAM or 4 GB VRAM | fp32 OOMs at 4.8 GB |
+| LoRA fine-tuning | ~12 GB VRAM | bf16/fp16 |
+| QLoRA fine-tuning | ~6 GB VRAM | 4-bit NF4, CUDA only |
+| Inference API (4-bit) | ~2 GB VRAM | CUDA only |
 
 ---
 
 ## Limitations
 
-**Dataset:**
-- Finance-alpaca is synthetic (generated by GPT-4). It has high coverage but outputs may not reflect real expert financial advice.
-- Deduplication removes exact matches only — near-duplicate paraphrases may remain.
+- **Not run at scale here** — see status banner. All quality numbers are PENDING.
+- finance-alpaca outputs are GPT-4-generated; high coverage, not guaranteed
+  expert-grade. US-centric skew.
+- Dedup is exact + normalized only; paraphrase near-duplicates may remain.
+- ROUGE/BLEU measure lexical overlap, not factual correctness; BERTScore is
+  semantic but imperfect for finance reasoning.
+- LLM-as-judge is biased (verbosity, position) and is not ground truth.
+- Error categorization is heuristic; `incorrect_reasoning` needs human review.
+- The Docker image ships no auth — put it behind a gateway for real use.
 
-**Compute:**
-- Without a GPU, training is not feasible locally. QLoRA makes this significantly more accessible (4GB VRAM minimum).
+## Future work
 
-**Evaluation:**
-- ROUGE/BLEU measure lexical overlap, not factual correctness. A fluent but wrong answer can score well.
-- BERTScore is better at semantic similarity but still imperfect for finance-specific reasoning.
-- LLM-as-a-judge is biased (verbosity bias, position bias) and should not be treated as ground truth.
+- Pin model/tokenizer commit SHAs in configs.
+- Run the full LoRA/QLoRA/ablation matrix on a GPU and fill the results table
+  from artifacts.
+- Human-calibrate the LLM judge; add MinHash paraphrase dedup.
+- GGUF export for CPU deployment; SSE streaming in the API.
 
-**Hallucination:**
-- No hallucination detection tool is perfect. The error analysis is heuristic-based for the automatic pass and requires human review for validation.
+## Resume bullets
 
-**Deployment:**
-- The Docker image has no authentication. For production use, add an API key middleware or deploy behind a reverse proxy with authentication.
-
----
-
-## Future Work
-
-- **DPO/ORPO alignment**: Apply preference optimization after SFT to reduce hallucination
-- **RAG integration**: Combine fine-tuned model with a finance document retriever
-- **Larger model**: Run LoRA on Qwen2.5-7B with the same pipeline
-- **Human evaluation**: Calibrate LLM judge scores against domain expert annotations
-- **Streaming inference**: Add server-sent events (SSE) to the FastAPI service for streaming responses
-- **GGUF quantization**: Export via llama.cpp for CPU-only deployment
-
----
-
-## Resume Bullets (fill in with actual measured values)
-
-> These are target bullet structures. Replace `[X]` with real numbers from your experiments.
-
-- "Fine-tuned `Qwen/Qwen2.5-1.5B` using QLoRA on `gbharti/finance-alpaca` (~55K examples), achieving **X% improvement in ROUGE-L** over the pretrained baseline with only **0.36% trainable parameters** (5.5M/1.5B)."
-- "Conducted **N controlled LoRA/QLoRA experiments** across rank, learning rate, and epoch configurations using MLflow, analyzing performance, GPU memory, and inference latency tradeoffs."
-- "Deployed the fine-tuned model as a **FastAPI + Docker inference service**, reducing model memory footprint by ~60% via 4-bit NF4 quantization with <X% ROUGE degradation."
-
----
+Not written yet — **on purpose**. Every number a bullet would need (ROUGE-L
+delta, trainable-parameter %, training time, latency, memory saving) is `PENDING`
+until the L3 runs happen. Fill them from `experiments/eval_results/comparison_table.md`
+and the MLflow run once the GPU experiments complete; do not estimate them.
 
 ## License
 
-MIT License. Dataset: Apache 2.0 / CC-BY-4.0 (finance-alpaca). Model: Apache 2.0 (Qwen2.5).
+MIT (code). Dataset: Apache-2.0 / CC-BY-4.0. Model: Apache-2.0 (Qwen2.5-1.5B).

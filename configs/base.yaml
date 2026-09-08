@@ -3,7 +3,9 @@ project:
   name: finance-llm-finetuning
   seed: 42
   output_dir: ./experiments
-  mlflow_tracking_uri: ./mlruns
+  # Recent MLflow rejects the legacy ./mlruns file store; use a local SQLite DB.
+  # Override with the MLFLOW_TRACKING_URI env var.
+  mlflow_tracking_uri: sqlite:///mlflow.db
   mlflow_experiment_name: finance-llm
 
 model:

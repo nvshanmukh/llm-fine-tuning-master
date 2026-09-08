@@ -79,15 +79,15 @@ class TestHealthEndpoint:
         assert "model_size_mb" in data
         assert data["model_size_mb"] == pytest.approx(3072.0)
 
-    def test_returns_503_when_no_model_loaded(self):
-        """Health check must return 503 when the predictor is None."""
+    def test_returns_503_when_no_model_loaded(self, monkeypatch):
+        """Health check must return 503 when no model is loaded (startup skipped)."""
+        monkeypatch.setenv("API_SKIP_MODEL_LOAD", "true")
         import src.api.main as api_module
 
         original = api_module._predictor
         try:
             api_module._predictor = None
-            from src.api.main import app
-            with TestClient(app, raise_server_exceptions=False) as c:
+            with TestClient(api_module.app, raise_server_exceptions=False) as c:
                 response = c.get("/health")
             assert response.status_code == 503
         finally:
@@ -169,15 +169,15 @@ class TestGenerateEndpoint:
         response = client.post("/generate", json={})
         assert response.status_code == 422
 
-    def test_returns_503_when_model_not_loaded(self):
+    def test_returns_503_when_model_not_loaded(self, monkeypatch):
         """Generate must return 503 if no model is loaded."""
+        monkeypatch.setenv("API_SKIP_MODEL_LOAD", "true")
         import src.api.main as api_module
 
         original = api_module._predictor
         try:
             api_module._predictor = None
-            from src.api.main import app
-            with TestClient(app, raise_server_exceptions=False) as c:
+            with TestClient(api_module.app, raise_server_exceptions=False) as c:
                 response = c.post("/generate", json={"instruction": "What is inflation?"})
             assert response.status_code == 503
         finally:

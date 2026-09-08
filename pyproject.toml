@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-finetuning-platform"
@@ -9,10 +9,15 @@ description = "Domain-Specific LLM Fine-Tuning & Evaluation Platform (Finance)"
 readme = "README.md"
 requires-python = ">=3.10"
 
+[tool.setuptools.packages.find]
+include = ["src*", "scripts*"]
+
 [project.scripts]
-prepare-data = "scripts.prepare_data:main"
-train-model = "scripts.train:main"
-evaluate-model = "scripts.evaluate:main"
+prepare-data = "scripts.prepare_data:app"
+train-model = "scripts.train:app"
+evaluate-model = "scripts.evaluate:app"
+finance-infer = "scripts.inference:app"
+judge-eval = "scripts.judge_eval:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -24,8 +29,22 @@ addopts = "-v --tb=short"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-lint.ignore = ["BLE001", "RUF015", "PLC0206", "S110"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "BLE", "RUF", "SIM"]
+ignore = ["BLE001", "RUF015", "SIM105", "B008", "E501", "B905", "C408", "RUF005"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and scripts insert the repo root on sys.path before importing src.*
+"tests/*" = ["RUF012", "BLE001", "E402", "B905"]
+"scripts/*" = ["B008", "E402"]  # typer uses function-call defaults by design
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 ignore_missing_imports = true
+check_untyped_defs = true
+disable_error_code = ["import-untyped"]
+# The ML deps (torch/transformers/datasets) ship huge stubs that make a full
+# recursive check extremely slow on 3.14; only our own code is type-checked.
+follow_imports = "silent"
+exclude = ["\\.venv/"]
