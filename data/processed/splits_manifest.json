@@ -1,0 +1,20 @@
+{
+  "seed": 42,
+  "fractions": {
+    "test": 0.1,
+    "val": 0.05,
+    "train_fraction": 1.0
+  },
+  "split_sizes": {
+    "train": 44353,
+    "validation": 2609,
+    "test": 5218
+  },
+  "split_membership_sha256": {
+    "train": "b8c3634a8bf2eae7ad170190136ad8bc93b653b489d31a27fe1712b344ee3854",
+    "validation": "6517e7c2aed574c946e08a269eb3c02e4608afc4d834b898c575085819e08311",
+    "test": "c65ae849928bcd89810efe37f6469730804a81505e7453eda80a7a936f3480fd"
+  },
+  "example_hash_algo": "md5(instruction.strip().lower() + '|||' + input.strip().lower())",
+  "sample_ids_note": "test-set sample_id used by scripts/evaluate.py is the 0-based row index in test.json (stable across model variants)"
+}

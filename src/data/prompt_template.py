@@ -31,6 +31,10 @@ INSTRUCTION_TEMPLATE = """<|im_start|>system
 <|im_start|>assistant
 """
 
+# Marker that separates the prompt from the model's response. Everything up to
+# and including this tag is masked out of the training loss (response-only SFT).
+RESPONSE_TAG = "<|im_start|>assistant\n"
+
 RESPONSE_TEMPLATE = "{output}<|im_end|>"
 
 TRAINING_TEMPLATE = INSTRUCTION_TEMPLATE + RESPONSE_TEMPLATE

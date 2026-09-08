@@ -1,42 +1,34 @@
-﻿# Python
+# Keep the build context small: the inference image only needs src/ + configs/.
+.git/
+.gitignore
+.venv/
+venv/
+env/
 __pycache__/
 *.py[cod]
 *.pyo
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 *.egg-info/
 dist/
 build/
 
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Git
-.git/
-.gitignore
-
-# Development files
-.env
-notes/
-notebooks/
-*.ipynb
+# Data, experiments, tracking DB, model weights - never in the image
+data/
+experiments/
 mlruns/
-
-# Large data and model files
-data/raw/
+mlflow.db
 *.safetensors
 *.bin
 *.gguf
 
-# Documentation
-README.md
-docs/
-
-# Tests (not needed in production image)
+# Dev-only
+.env
+notes/
+notebooks/
+*.ipynb
 tests/
-
-# IDE
-.vscode/
-.idea/
+docs/
+README.md
+Dockerfile.train

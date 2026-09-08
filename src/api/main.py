@@ -1,4 +1,4 @@
-﻿"""
+"""
 FastAPI inference service for the Finance LLM fine-tuning project.
 
 Endpoints:
@@ -9,6 +9,9 @@ Endpoints:
 Configuration via environment variables (see .env.example):
     INFERENCE_MODEL_PATH   -- Path to base model or HF model ID
     INFERENCE_ADAPTER_PATH -- Optional path to LoRA/QLoRA adapter
+    LOAD_IN_4BIT           -- "true" to load the base model in 4-bit (QLoRA inference)
+    API_SKIP_MODEL_LOAD    -- "true" to start the server without loading a model
+                              (used by tests / readiness probes only)
     API_HOST               -- API host (default: 0.0.0.0)
     API_PORT               -- API port (default: 8000)
 """
@@ -18,7 +21,6 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-import torch
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -40,15 +42,12 @@ from src.utils.logging_utils import setup_logger
 # Global state (model is loaded once at startup)
 # ---------------------------------------------------------------------------
 _predictor: FinanceLLMPredictor | None = None
+_model_load_error: str | None = None
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan: load model on startup, clean up on shutdown."""
-    global _predictor
-
-    setup_logger(level=os.environ.get("LOG_LEVEL", "INFO"))
-    logger.info("Starting Finance LLM API...")
+def _load_predictor() -> None:
+    """Load the predictor into module state. Records failures instead of raising."""
+    global _predictor, _model_load_error
 
     model_path = os.environ.get("INFERENCE_MODEL_PATH", "Qwen/Qwen2.5-1.5B")
     adapter_path = os.environ.get("INFERENCE_ADAPTER_PATH") or None
@@ -59,7 +58,6 @@ async def lifespan(app: FastAPI):
         model_id = "finetuned-qlora" if load_in_4bit else "finetuned-lora"
 
     logger.info(f"Loading model: {model_path} | adapter: {adapter_path} | 4bit: {load_in_4bit}")
-
     try:
         _predictor = FinanceLLMPredictor(
             model_path=model_path,
@@ -67,10 +65,28 @@ async def lifespan(app: FastAPI):
             load_in_4bit=load_in_4bit,
             model_id=model_id,
         )
+        _model_load_error = None
         logger.info("Model loaded successfully")
     except Exception as e:
-        logger.error(f"Failed to load model: {e}")
-        raise
+        _predictor = None
+        _model_load_error = f"{type(e).__name__}: {e}"
+        logger.error(f"Failed to load model: {_model_load_error}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: load model on startup, clean up on shutdown."""
+    global _predictor, _model_load_error
+
+    setup_logger(level=os.environ.get("LOG_LEVEL", "INFO"))
+    logger.info("Starting Finance LLM API...")
+
+    if os.environ.get("API_SKIP_MODEL_LOAD", "false").lower() == "true":
+        logger.warning("API_SKIP_MODEL_LOAD=true -- starting without a model (not ready to serve)")
+        _predictor = None
+        _model_load_error = "model loading skipped (API_SKIP_MODEL_LOAD=true)"
+    elif _predictor is None:
+        _load_predictor()
 
     yield  # Application runs here
 
@@ -102,7 +118,11 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Log each incoming request with method, path, and response time."""
+    """Log each incoming request with method, path, and response time.
+
+    Only the method, path, status and duration are logged -- request bodies
+    (which may contain user questions) are never written to the logs.
+    """
     start = time.perf_counter()
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - start) * 1000
@@ -113,24 +133,37 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+def _device_string() -> str:
+    try:
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "unknown"
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health_check() -> HealthResponse:
     """
-    Health check endpoint.
-    Returns model info and device details.
+    Health / readiness check.
+
+    Returns HTTP 200 with status="ok" only when a model is loaded and ready.
+    Returns HTTP 503 when the model is not loaded or failed to load.
     """
     if _predictor is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
+        raise HTTPException(
+            status_code=503,
+            detail=_model_load_error or "Model not loaded",
+        )
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     return HealthResponse(
         status="ok",
         model=_predictor.model_id,
         model_size_mb=_predictor.model_size_mb,
-        device=device,
+        device=_device_string(),
     )
 
 
@@ -143,7 +176,7 @@ async def generate(request: GenerateRequest) -> GenerateResponse:
     used during fine-tuning, ensuring the model sees the expected input format.
     """
     if _predictor is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
+        raise HTTPException(status_code=503, detail=_model_load_error or "Model not loaded")
 
     # Format prompt using the same template as training
     prompt = format_for_inference({
@@ -161,8 +194,8 @@ async def generate(request: GenerateRequest) -> GenerateResponse:
     try:
         result = _predictor.generate(prompt, gen_config)
     except Exception as e:
-        logger.error(f"Generation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Generation error: {e!s}")
+        logger.error(f"Generation failed: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Generation error") from e
 
     return GenerateResponse(
         response=result.response,
@@ -179,11 +212,16 @@ async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     Compute text quality metrics for a prediction/reference pair.
 
     Useful for programmatic evaluation without needing to load datasets.
-    Returns ROUGE, BLEU, and Exact Match scores.
+    Returns ROUGE, BLEU, and Exact Match scores. This endpoint does not
+    require a loaded model.
     """
-    rouge_scores = compute_rouge([request.candidate], [request.reference])
-    bleu_scores = compute_bleu([request.candidate], [request.reference])
-    em_scores = compute_exact_match([request.candidate], [request.reference])
+    try:
+        rouge_scores = compute_rouge([request.candidate], [request.reference])
+        bleu_scores = compute_bleu([request.candidate], [request.reference])
+        em_scores = compute_exact_match([request.candidate], [request.reference])
+    except Exception as e:
+        logger.error(f"Metric computation failed: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="Metric computation error") from e
 
     return EvaluateResponse(
         rouge1=rouge_scores["rouge1"],
@@ -205,6 +243,6 @@ async def value_error_handler(request: Request, exc: ValueError):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Catch-all exception handler to prevent leaking stack traces."""
-    logger.error(f"Unhandled exception: {exc}")
+    """Catch-all handler: log server-side, return a generic message to the client."""
+    logger.error(f"Unhandled exception on {request.url.path}: {type(exc).__name__}: {exc}")
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})

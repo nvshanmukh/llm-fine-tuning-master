@@ -1,8 +1,9 @@
-﻿# =============================================================================
-# Finance LLM Training Image — GPU (CUDA 12.1)
 # =============================================================================
-# Designed for cloud GPU instances (Colab, Kaggle, Lambda, RunPod).
-# Includes full training stack: torch, transformers, peft, trl, bitsandbytes.
+# Finance LLM Training Image - GPU (CUDA)
+# =============================================================================
+# For cloud GPU instances (Colab, Kaggle, Lambda, RunPod, ...).
+# Includes the full training + evaluation stack plus a CUDA bitsandbytes build
+# for QLoRA.
 #
 # Build:
 #   docker build -f Dockerfile.train -t finance-llm-train .
@@ -16,29 +17,24 @@
 #     python scripts/train.py --config configs/qlora.yaml
 # =============================================================================
 
-FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
 
 WORKDIR /app
 
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
+RUN apt-get update && apt-get install -y --no-install-recommends git curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
 COPY requirements.txt .
+# torch is already provided by the base image; install the rest + CUDA bitsandbytes.
+RUN pip install --upgrade pip --no-cache-dir \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir "bitsandbytes>=0.43"
 
-# Install training dependencies (bitsandbytes compiled for CUDA 12.1)
-RUN pip install --upgrade pip --no-cache-dir && \
-    pip install --no-cache-dir -r requirements.txt
-
-# Copy full project source
 COPY . .
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    TOKENIZERS_PARALLELISM=false
+    TOKENIZERS_PARALLELISM=false \
+    HF_HOME=/app/.cache/huggingface
 
-# Default: help text (override CMD at runtime)
 CMD ["python", "scripts/train.py", "--help"]

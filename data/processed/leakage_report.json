@@ -1,0 +1,12 @@
+{
+  "cross_split_overlap_by_instruction_input_hash": {
+    "train_test_overlap": 0,
+    "train_val_overlap": 0,
+    "val_test_overlap": 0
+  },
+  "leakage_detected": false,
+  "exact_duplicates_removed": 10026,
+  "normalized_near_duplicates_detected": 0,
+  "normalized_near_duplicate_note": "normalized key ignores case/punctuation/whitespace over instruction+input+output; these are counted but NOT removed by default",
+  "group_aware_splitting": "not applicable - finance-alpaca has no document/group id; each row is an independent (instruction, input, output) triple"
+}

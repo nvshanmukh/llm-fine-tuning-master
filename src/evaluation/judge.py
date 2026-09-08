@@ -175,6 +175,74 @@ def judge_single(
         return JudgmentResult(raw_response=str(e), parsing_failed=True)
 
 
+PAIRWISE_SYSTEM_PROMPT = """You are an impartial expert evaluator of financial advice.
+You will see a question, a reference answer, and two candidate answers labelled A and B.
+Decide which candidate answer is better overall (accuracy, relevance, completeness,
+instruction-following, absence of hallucination).
+
+Do NOT favour longer answers simply because they are longer.
+Return ONLY valid JSON: {"winner": "A" | "B" | "tie", "reasoning": "<1-2 sentences>"}"""
+
+PAIRWISE_USER_TEMPLATE = """## Question
+{instruction}
+
+## Input Context
+{input}
+
+## Reference Answer
+{reference}
+
+## Candidate A
+{answer_a}
+
+## Candidate B
+{answer_b}
+"""
+
+
+def judge_pairwise(
+    instruction: str,
+    inp: str,
+    reference: str,
+    answer_a: str,
+    answer_b: str,
+    call_llm,
+    swap: bool = False,
+) -> dict:
+    """
+    Blinded pairwise judgment. ``call_llm(system, user) -> str`` is injected so the
+    transport (OpenAI, local server, ...) is decoupled from the rubric.
+
+    If ``swap`` is True the two answers are presented in reversed order and the
+    result is mapped back; run once with swap=False and once with swap=True to
+    measure / cancel position bias.
+    """
+    first, second = (answer_b, answer_a) if swap else (answer_a, answer_b)
+    user = PAIRWISE_USER_TEMPLATE.format(
+        instruction=instruction, input=inp or "(none)", reference=reference,
+        answer_a=first, answer_b=second,
+    )
+    raw = call_llm(PAIRWISE_SYSTEM_PROMPT, user)
+    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    winner = "tie"
+    reasoning = ""
+    if m:
+        try:
+            data = json.loads(m.group())
+            winner = str(data.get("winner", "tie")).strip().upper()[:1]
+            reasoning = data.get("reasoning", "")
+        except (json.JSONDecodeError, ValueError):
+            pass
+    # Map the presented label back to the true answer identity.
+    if winner == "A":
+        true_winner = "b" if swap else "a"
+    elif winner == "B":
+        true_winner = "a" if swap else "b"
+    else:
+        true_winner = "tie"
+    return {"winner": true_winner, "reasoning": reasoning, "raw": raw, "swap": swap}
+
+
 def aggregate_judgments(results: list[JudgmentResult]) -> dict[str, float]:
     """
     Aggregate multiple JudgmentResults into mean scores.

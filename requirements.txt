@@ -1,53 +1,61 @@
-﻿# ============================================================
-# LLM Fine-Tuning Platform — Training Requirements
-# Python 3.10+, CUDA 12.1+
-# Tested on: T4 (16GB) via Google Colab, A100 (40GB)
+# ============================================================
+# LLM Fine-Tuning Platform - Training + full pipeline requirements
+#
+# Verified on: Python 3.14, CPU-only (Windows).  The data pipeline,
+# evaluation, inference, CLI, API and a tiny CPU LoRA plumbing run were
+# executed against exactly these lower bounds.
+#
+# GPU LoRA / QLoRA additionally needs a CUDA build of `bitsandbytes`
+# (see the commented line below) and an NVIDIA GPU.
 # ============================================================
 
 # Core ML
-torch==2.3.0
-torchvision==0.18.0
+torch>=2.4,<3
 
 # HuggingFace ecosystem
-transformers==4.44.2
-datasets==2.20.0
-tokenizers==0.19.1
-accelerate==0.33.0
-peft==0.12.0
-trl==0.9.6
-bitsandbytes==0.43.3
+transformers>=4.46,<6
+tokenizers>=0.20
+datasets>=3.0,<6
+accelerate>=1.0
+peft>=0.13,<1
 
 # Evaluation metrics
-rouge-score==0.1.2
-nltk==3.9.1
-bert-score==0.3.13
-evaluate==0.4.2
+rouge-score>=0.1.2
+nltk>=3.9
+bert-score>=0.3.13
+evaluate>=0.4.2
 
 # Experiment tracking
-mlflow==2.15.1
+mlflow>=2.15
 
 # Configuration
-omegaconf==2.3.0
-hydra-core==1.3.2
+omegaconf>=2.3
 
 # Data processing
-pandas==2.2.2
-numpy==1.26.4
-scikit-learn==1.5.1
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
 
 # Utilities
-tqdm==4.66.5
-rich==13.7.1
-loguru==0.7.2
-typer==0.12.5
-pyyaml==6.0.2
+tqdm>=4.66
+rich>=13.7
+loguru>=0.7
+typer>=0.12
+pyyaml>=6.0
+psutil>=5.9
 
-# API & Deployment
-fastapi==0.112.0
-uvicorn[standard]==0.30.5
-pydantic==2.8.2
-httpx==0.27.0
+# LLM-as-a-judge transport (optional; only needed for scripts/judge_eval.py)
+openai>=1.40
+
+# API & deployment (kept here so `pip install -r requirements.txt` is enough)
+fastapi>=0.112
+uvicorn[standard]>=0.30
+pydantic>=2.8
+httpx>=0.27
 
 # Testing
-pytest==8.3.2
-pytest-asyncio==0.23.8
+pytest>=8.3
+pytest-asyncio>=0.23
+
+# --- GPU-only: install manually on a CUDA host for QLoRA ---
+# bitsandbytes>=0.43 ; platform_system == "Linux"

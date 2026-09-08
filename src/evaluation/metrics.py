@@ -68,6 +68,80 @@ def compute_rouge(
     return result
 
 
+def rouge_l_per_example(
+    predictions: list[str],
+    references: list[str],
+) -> list[float]:
+    """Return the ROUGE-L F1 for each (prediction, reference) pair."""
+    from rouge_score import rouge_scorer
+
+    scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+    return [
+        scorer.score(ref, pred)["rougeL"].fmeasure
+        for pred, ref in zip(predictions, references)
+    ]
+
+
+def bootstrap_mean_ci(
+    values: list[float],
+    n_resamples: int = 2000,
+    confidence: float = 0.95,
+    seed: int = 42,
+) -> dict[str, float]:
+    """
+    Non-parametric bootstrap confidence interval for the mean of ``values``.
+
+    Returns dict with mean, ci_low, ci_high, n.
+    """
+    import numpy as np
+
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        return {"mean": 0.0, "ci_low": 0.0, "ci_high": 0.0, "n": 0}
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, arr.size, size=(n_resamples, arr.size))
+    means = arr[idx].mean(axis=1)
+    alpha = (1.0 - confidence) / 2.0
+    return {
+        "mean": round(float(arr.mean()), 4),
+        "ci_low": round(float(np.quantile(means, alpha)), 4),
+        "ci_high": round(float(np.quantile(means, 1 - alpha)), 4),
+        "n": int(arr.size),
+    }
+
+
+def paired_bootstrap_diff(
+    scores_a: list[float],
+    scores_b: list[float],
+    n_resamples: int = 2000,
+    confidence: float = 0.95,
+    seed: int = 42,
+) -> dict[str, float]:
+    """
+    Paired bootstrap for the mean difference (a - b) between two per-example
+    score lists computed on the SAME examples. Returns mean_diff, ci_low,
+    ci_high and the fraction of resamples where a > b (``prob_a_gt_b``).
+    """
+    import numpy as np
+
+    a = np.asarray(scores_a, dtype=float)
+    b = np.asarray(scores_b, dtype=float)
+    if a.size == 0 or a.size != b.size:
+        return {"mean_diff": 0.0, "ci_low": 0.0, "ci_high": 0.0, "prob_a_gt_b": 0.0, "n": 0}
+    diff = a - b
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, diff.size, size=(n_resamples, diff.size))
+    resampled = diff[idx].mean(axis=1)
+    alpha = (1.0 - confidence) / 2.0
+    return {
+        "mean_diff": round(float(diff.mean()), 4),
+        "ci_low": round(float(np.quantile(resampled, alpha)), 4),
+        "ci_high": round(float(np.quantile(resampled, 1 - alpha)), 4),
+        "prob_a_gt_b": round(float((resampled > 0).mean()), 4),
+        "n": int(diff.size),
+    }
+
+
 def compute_bleu(
     predictions: list[str],
     references: list[str],
@@ -82,14 +156,10 @@ def compute_bleu(
     Returns:
         Dict with key: bleu4 (0-1).
     """
-    import nltk
     from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
 
-    try:
-        nltk.data.find("tokenizers/punkt")
-    except LookupError:
-        nltk.download("punkt", quiet=True)
-
+    # Whitespace tokenisation is used deliberately (no nltk.word_tokenize),
+    # so no punkt model download is required.
     smooth = SmoothingFunction().method1
     tokenized_preds = [pred.lower().split() for pred in predictions]
     tokenized_refs = [[ref.lower().split()] for ref in references]

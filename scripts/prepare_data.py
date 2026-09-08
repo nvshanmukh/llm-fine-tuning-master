@@ -45,6 +45,7 @@ def main(
     test_frac: float = typer.Option(0.10, help="Test split fraction"),
     val_frac: float = typer.Option(0.05, help="Validation split fraction"),
     seed: int = typer.Option(42, help="Random seed"),
+    train_fraction: float = typer.Option(1.0, help="Fraction of filtered data to keep (1.0 = all)"),
     skip_token_filter: bool = typer.Option(False, "--skip-token-filter", help="Skip slow token length filtering"),
     hf_token: str = typer.Option(None, help="HuggingFace API token (or use HF_TOKEN env var)"),
     log_level: str = typer.Option("INFO", help="Log level (DEBUG/INFO/WARNING/ERROR)"),
@@ -76,6 +77,7 @@ def main(
         seed=seed,
         hf_token=token,
         skip_token_filter=skip_token_filter,
+        train_fraction=train_fraction,
     )
 
     logger.info("Data preparation complete!")

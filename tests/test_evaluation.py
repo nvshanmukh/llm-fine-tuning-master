@@ -18,13 +18,17 @@ from src.evaluation.error_analysis import (
     categorize_error_heuristic,
     generate_error_report,
 )
+from src.evaluation.judge import judge_pairwise, parse_judgment
 from src.evaluation.metrics import (
+    bootstrap_mean_ci,
     compute_all_metrics,
     compute_bleu,
     compute_exact_match,
     compute_length_stats,
     compute_rouge,
     normalize_text,
+    paired_bootstrap_diff,
+    rouge_l_per_example,
 )
 
 
@@ -129,6 +133,66 @@ class TestComputeAllMetrics:
         assert "rougeL" in metrics
         assert "bleu4" in metrics
         assert "exact_match" in metrics
+
+
+class TestBootstrap:
+    def test_rouge_l_per_example_length(self):
+        scores = rouge_l_per_example(["a b c", "x y"], ["a b c", "p q"])
+        assert len(scores) == 2
+        assert scores[0] == pytest.approx(1.0, abs=0.01)
+
+    def test_ci_brackets_mean(self):
+        vals = [0.1, 0.2, 0.3, 0.4, 0.5]
+        ci = bootstrap_mean_ci(vals, n_resamples=500, seed=1)
+        assert ci["ci_low"] <= ci["mean"] <= ci["ci_high"]
+        assert ci["n"] == 5
+
+    def test_ci_empty(self):
+        ci = bootstrap_mean_ci([], n_resamples=100)
+        assert ci == {"mean": 0.0, "ci_low": 0.0, "ci_high": 0.0, "n": 0}
+
+    def test_paired_diff_detects_improvement(self):
+        a = [0.8, 0.9, 0.7, 0.85, 0.95]
+        b = [0.2, 0.3, 0.1, 0.25, 0.15]
+        d = paired_bootstrap_diff(a, b, n_resamples=500, seed=1)
+        assert d["mean_diff"] > 0.4
+        assert d["prob_a_gt_b"] == pytest.approx(1.0, abs=0.01)
+
+    def test_paired_diff_no_difference(self):
+        a = [0.5, 0.5, 0.5, 0.5]
+        d = paired_bootstrap_diff(a, list(a), n_resamples=200, seed=1)
+        assert d["mean_diff"] == pytest.approx(0.0)
+
+
+class TestJudge:
+    def test_parse_valid_json(self):
+        r = parse_judgment('{"correctness": 4, "relevance": 5, "completeness": 3, '
+                            '"instruction_following": 4, "hallucination_score": 5, '
+                            '"reasoning": "ok", "overall": 4}')
+        assert not r.parsing_failed
+        assert r.correctness == 4.0
+        assert r.overall == 4.0
+
+    def test_parse_garbage(self):
+        r = parse_judgment("the model did fine, no json here")
+        assert r.parsing_failed
+
+    def test_pairwise_blinding_and_swap_mapping(self):
+        # Judge always says the first-presented answer ("A") wins.
+        calls = []
+
+        def fake_llm(system, user):
+            calls.append(user)
+            return '{"winner": "A", "reasoning": "x"}'
+
+        # no swap: A == answer_a -> winner "a"
+        r1 = judge_pairwise("q", "", "ref", "ANS_A", "ANS_B", fake_llm, swap=False)
+        assert r1["winner"] == "a"
+        # swap: presented order reversed, "A" maps back to answer_b
+        r2 = judge_pairwise("q", "", "ref", "ANS_A", "ANS_B", fake_llm, swap=True)
+        assert r2["winner"] == "b"
+        # identity of the answers is in the prompt but not their labels
+        assert "ANS_A" in calls[0] and "ANS_B" in calls[0]
 
 
 class TestErrorAnalysis:

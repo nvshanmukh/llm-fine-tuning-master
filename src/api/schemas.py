@@ -56,12 +56,12 @@ class GenerateResponse(BaseModel):
 
 
 class EvaluateRequest(BaseModel):
-    """Request body for the POST /evaluate endpoint."""
+    """Request body for the POST /evaluate endpoint (metrics only; no model needed)."""
 
-    instruction: str = Field(..., description="The original instruction.", min_length=5)
-    input_context: str = Field(default="", description="Optional input context.")
     reference: str = Field(..., description="Ground-truth reference answer.", min_length=3)
     candidate: str = Field(..., description="Candidate model answer to evaluate.", min_length=3)
+    instruction: str = Field(default="", description="Optional: the original instruction (context only).")
+    input_context: str = Field(default="", description="Optional input context (context only).")
 
 
 class EvaluateResponse(BaseModel):
