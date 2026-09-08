@@ -76,6 +76,7 @@ class FinanceLLMPredictor:
         model_id: str = "unknown",
         merge_adapter: bool | None = None,
         dynamic_int8: bool = False,
+        revision: str | None = None,
     ) -> None:
         """
         Initialize the predictor and load the model.
@@ -96,6 +97,7 @@ class FinanceLLMPredictor:
         self.model_path = model_path
         self.adapter_path = adapter_path
         self.model_id = model_id
+        self.revision = revision
         self.load_in_4bit = load_in_4bit
         self.load_in_8bit = load_in_8bit
         self.dynamic_int8 = dynamic_int8
@@ -165,8 +167,9 @@ class FinanceLLMPredictor:
             else:
                 bnb_config = BitsAndBytesConfig(load_in_8bit=True)
 
-        logger.info(f"Loading model: {self.model_path}")
+        logger.info(f"Loading model: {self.model_path} @ {self.revision or 'main'}")
         load_kwargs = dict(
+            revision=self.revision,
             quantization_config=bnb_config,
             device_map=device_map,
             trust_remote_code=True,
@@ -212,6 +215,7 @@ class FinanceLLMPredictor:
         logger.info(f"Loading tokenizer: {self.model_path}")
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.model_path,
+            revision=self.revision,
             trust_remote_code=True,
         )
         if self._tokenizer.pad_token is None:

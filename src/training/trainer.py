@@ -103,6 +103,7 @@ def load_model_and_tokenizer(cfg: DictConfig) -> tuple:
 
     model_cfg = cfg.model
     model_name = model_cfg.model_name_or_path
+    revision = model_cfg.get("revision")
 
     dtype_map = {
         "bfloat16": torch.bfloat16,
@@ -113,8 +114,9 @@ def load_model_and_tokenizer(cfg: DictConfig) -> tuple:
     torch_dtype = dtype_map.get(model_cfg.get("torch_dtype", "bfloat16"), torch.bfloat16)
     bnb_config = build_bnb_config(model_cfg)
 
-    logger.info(f"Loading model: {model_name}")
+    logger.info(f"Loading model: {model_name} @ {revision or 'main'}")
     load_kwargs = dict(
+        revision=revision,
         quantization_config=bnb_config,
         trust_remote_code=model_cfg.get("trust_remote_code", True),
         device_map="auto" if torch.cuda.is_available() else None,
@@ -137,6 +139,7 @@ def load_model_and_tokenizer(cfg: DictConfig) -> tuple:
     logger.info(f"Loading tokenizer: {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(
         model_name,
+        revision=revision,
         trust_remote_code=model_cfg.get("trust_remote_code", True),
         token=os.environ.get("HF_TOKEN"),
     )

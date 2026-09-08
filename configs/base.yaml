@@ -10,6 +10,8 @@ project:
 
 model:
   model_name_or_path: Qwen/Qwen2.5-1.5B
+  # Pinned commit on the HF Hub for reproducibility (as of 2026-09-08).
+  revision: 8faed761d45a263340a0528343f099c05c9a4323
   # Set to null to disable quantization (for LoRA full-precision training)
   load_in_4bit: false
   load_in_8bit: false
@@ -19,6 +21,8 @@ model:
 
 data:
   dataset_name: gbharti/finance-alpaca
+  # Pinned dataset commit on the HF Hub (as of 2026-09-08).
+  dataset_revision: c88d3d5e7e2c7cab9f11a56f27bd5ba3ed68f075
   dataset_cache_dir: ./data/raw
   processed_dir: ./data/processed
   max_seq_length: 512

@@ -55,6 +55,9 @@ def main(
         "Qwen/Qwen2.5-1.5B",
         help="Base model path or HuggingFace model ID.",
     ),
+    revision: str = typer.Option(
+        None, help="Pin the base model's HF commit (default: configs/base.yaml pin)."
+    ),
     adapter_path: str = typer.Option(
         None,
         help="Optional path to a LoRA/QLoRA adapter directory.",
@@ -110,11 +113,17 @@ def main(
     if adapter_path:
         model_id = "qlora" if load_in_4bit else "lora"
 
+    if revision is None and model_path == "Qwen/Qwen2.5-1.5B":
+        from src.data.make_dataset import DEFAULT_MODEL_REVISION
+
+        revision = DEFAULT_MODEL_REVISION
+
     predictor = FinanceLLMPredictor(
         model_path=model_path,
         adapter_path=adapter_path,
         load_in_4bit=load_in_4bit,
         model_id=model_id,
+        revision=revision,
     )
 
     gen_config = GenerationConfig(
