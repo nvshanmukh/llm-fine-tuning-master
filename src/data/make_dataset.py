@@ -39,7 +39,10 @@ from src.utils.seed import set_seed
 # Constants
 # ---------------------------------------------------------------------------
 DATASET_NAME = "gbharti/finance-alpaca"
+# Pinned HF Hub commits for reproducibility (kept in sync with configs/base.yaml).
+DEFAULT_DATASET_REVISION = "c88d3d5e7e2c7cab9f11a56f27bd5ba3ed68f075"
 DEFAULT_MODEL_NAME = "Qwen/Qwen2.5-1.5B"
+DEFAULT_MODEL_REVISION = "8faed761d45a263340a0528343f099c05c9a4323"
 DEFAULT_MAX_SEQ_LEN = 512
 DEFAULT_MIN_OUTPUT_WORDS = 5
 DEFAULT_MAX_OUTPUT_WORDS = 600
@@ -68,10 +71,11 @@ def load_raw_dataset(
     dataset_name: str = DATASET_NAME,
     cache_dir: str | None = None,
     hf_token: str | None = None,
+    revision: str | None = DEFAULT_DATASET_REVISION,
 ) -> Dataset:
     """Load the raw finance-alpaca dataset (single 'train' split) from the Hub."""
-    logger.info(f"Loading dataset: {dataset_name}")
-    raw = load_dataset(dataset_name, cache_dir=cache_dir, token=hf_token)
+    logger.info(f"Loading dataset: {dataset_name} @ {revision or 'main'}")
+    raw = load_dataset(dataset_name, cache_dir=cache_dir, token=hf_token, revision=revision)
     dataset = raw["train"] if "train" in raw else raw[list(raw.keys())[0]]
     # Ensure the columns we rely on always exist.
     for col in ("instruction", "input", "output"):
@@ -109,15 +113,19 @@ def filter_by_output_length(
     return dataset
 
 
-def _load_tokenizer(tokenizer_name: str):
+def _load_tokenizer(tokenizer_name: str, revision: str | None = None):
     from transformers import AutoTokenizer
 
-    return AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
+    return AutoTokenizer.from_pretrained(
+        tokenizer_name, revision=revision, trust_remote_code=True
+    )
 
 
-def compute_token_lengths(dataset: Dataset, tokenizer_name: str) -> Dataset:
+def compute_token_lengths(
+    dataset: Dataset, tokenizer_name: str, revision: str | None = None
+) -> Dataset:
     """Add a ``token_length`` column with the tokenized length of the full training text."""
-    tokenizer = _load_tokenizer(tokenizer_name)
+    tokenizer = _load_tokenizer(tokenizer_name, revision)
 
     def _fn(example: dict) -> dict:
         return {"token_length": len(tokenizer(format_for_training(example))["input_ids"])}
@@ -130,6 +138,7 @@ def filter_by_token_length(
     dataset: Dataset,
     tokenizer_name: str,
     max_seq_length: int = DEFAULT_MAX_SEQ_LEN,
+    tokenizer_revision: str | None = None,
 ) -> tuple[Dataset, dict]:
     """
     Remove examples whose full formatted prompt+response exceeds ``max_seq_length``.
@@ -138,13 +147,14 @@ def filter_by_token_length(
     pre-filter distribution and include the truncation rate.
     """
     if "token_length" not in dataset.column_names:
-        dataset = compute_token_lengths(dataset, tokenizer_name)
+        dataset = compute_token_lengths(dataset, tokenizer_name, tokenizer_revision)
 
     lengths = np.asarray(dataset["token_length"], dtype=int)
     before = len(dataset)
     over = int((lengths > max_seq_length).sum())
     stats = {
         "tokenizer": tokenizer_name,
+        "tokenizer_revision": tokenizer_revision,
         "max_seq_length": max_seq_length,
         "count_pre_filter": before,
         "mean": round(float(lengths.mean()), 1),
@@ -338,12 +348,16 @@ def run_pipeline(
     hf_token: str | None = None,
     skip_token_filter: bool = False,
     train_fraction: float = 1.0,
+    model_revision: str | None = DEFAULT_MODEL_REVISION,
+    dataset_revision: str | None = DEFAULT_DATASET_REVISION,
 ) -> DatasetDict:
     """Run the full data preprocessing pipeline end to end."""
     set_seed(seed)
     logger.info("Starting data preprocessing pipeline...")
 
-    dataset = load_raw_dataset(DATASET_NAME, cache_dir=cache_dir, hf_token=hf_token)
+    dataset = load_raw_dataset(
+        DATASET_NAME, cache_dir=cache_dir, hf_token=hf_token, revision=dataset_revision
+    )
     raw_count = len(dataset)
 
     dataset = filter_empty_fields(dataset)
@@ -354,7 +368,9 @@ def run_pipeline(
 
     token_stats: dict = {}
     if not skip_token_filter:
-        dataset, token_stats = filter_by_token_length(dataset, model_name, max_seq_length)
+        dataset, token_stats = filter_by_token_length(
+            dataset, model_name, max_seq_length, tokenizer_revision=model_revision
+        )
 
     if train_fraction < 1.0:
         keep_n = int(len(dataset) * train_fraction)
@@ -366,6 +382,9 @@ def run_pipeline(
     extra_stats = {
         "raw_examples": raw_count,
         "examples_after_filtering": sum(len(v) for v in splits.values()),
+        "dataset_revision": dataset_revision,
+        "tokenizer": model_name,
+        "tokenizer_revision": model_revision,
         "token_length_stats": token_stats,
         "duplicates": {
             "exact_duplicates_removed": exact_dups,

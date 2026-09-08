@@ -9,15 +9,15 @@ Every executed run, with enough detail to trace or reproduce it. Runs here are
 
 | Field | Value |
 |---|---|
-| Command | `python scripts/prepare_data.py --model-name Qwen/Qwen2.5-1.5B --max-seq-len 512 --seed 42` |
-| Dataset | `gbharti/finance-alpaca`, HF default revision, single `train` split, 68,912 rows |
-| Tokenizer | `Qwen/Qwen2.5-1.5B` (default revision) |
+| Command | `python scripts/prepare_data.py --seed 42` |
+| Dataset | `gbharti/finance-alpaca` @ `c88d3d5e7e2c7cab9f11a56f27bd5ba3ed68f075`, single `train` split, 68,912 rows |
+| Tokenizer | `Qwen/Qwen2.5-1.5B` @ `8faed761d45a263340a0528343f099c05c9a4323` |
 | Seed | 42 |
 | Code state | this branch (see `git rev-parse HEAD`) |
 | Host | Windows 11, Python 3.14.4, CPU only |
 | Outputs | `data/processed/{train,validation,test}.json` (git-ignored), `stats.json`, `splits_manifest.json`, `leakage_report.json` (committed) |
 | Result | 52,180 examples kept → train 44,353 / val 2,609 / test 5,218; cross-split leakage 0/0/0; truncation rate @512 = 1.22% |
-| Reproducible | yes — `splits_manifest.json.split_membership_sha256` is stable for seed 42 |
+| Reproducible | yes — re-run 3× (incl. after the revision-pinning change); `split_membership_sha256.test` = `c65ae849928bcd89810efe37f6469730804a81505e7453eda80a7a936f3480fd` each time |
 
 ---
 

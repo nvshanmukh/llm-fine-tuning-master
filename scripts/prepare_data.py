@@ -45,6 +45,8 @@ def main(
     test_frac: float = typer.Option(0.10, help="Test split fraction"),
     val_frac: float = typer.Option(0.05, help="Validation split fraction"),
     seed: int = typer.Option(42, help="Random seed"),
+    model_revision: str = typer.Option(None, help="Pin the tokenizer's HF commit (default: configs/base.yaml)"),
+    dataset_revision: str = typer.Option(None, help="Pin the dataset's HF commit (default: configs/base.yaml)"),
     train_fraction: float = typer.Option(1.0, help="Fraction of filtered data to keep (1.0 = all)"),
     skip_token_filter: bool = typer.Option(False, "--skip-token-filter", help="Skip slow token length filtering"),
     hf_token: str = typer.Option(None, help="HuggingFace API token (or use HF_TOKEN env var)"),
@@ -55,11 +57,17 @@ def main(
     load_env_overrides()
 
     import os
+
+    from src.data.make_dataset import DEFAULT_DATASET_REVISION, DEFAULT_MODEL_REVISION
+
     token = hf_token or os.environ.get("HF_TOKEN")
+    model_revision = model_revision or DEFAULT_MODEL_REVISION
+    dataset_revision = dataset_revision or DEFAULT_DATASET_REVISION
 
     logger.info("=" * 60)
     logger.info("Finance LLM Dataset Preparation")
-    logger.info(f"  Model:          {model_name}")
+    logger.info(f"  Model:          {model_name} @ {model_revision}")
+    logger.info(f"  Dataset rev:    {dataset_revision}")
     logger.info(f"  Max seq len:    {max_seq_len}")
     logger.info(f"  Test fraction:  {test_frac:.0%}")
     logger.info(f"  Val fraction:   {val_frac:.0%}")
@@ -78,6 +86,8 @@ def main(
         hf_token=token,
         skip_token_filter=skip_token_filter,
         train_fraction=train_fraction,
+        model_revision=model_revision,
+        dataset_revision=dataset_revision,
     )
 
     logger.info("Data preparation complete!")

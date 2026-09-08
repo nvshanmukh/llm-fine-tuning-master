@@ -99,8 +99,10 @@ regenerable.
 
 - 1.5B params, Apache-2.0, first-class `transformers`/`peft` support.
 - ChatML special tokens (`<|im_start|>` / `<|im_end|>`) are in the tokenizer.
-- **Not yet pinned to a commit SHA** — add `revision:` to the configs before a
-  publishable run.
+- **Pinned** to HF commit `8faed761…` (`configs/base.yaml` `model.revision`); the
+  dataset is pinned to `c88d3d5e…` (`data.dataset_revision`). Every model /
+  tokenizer / dataset load threads the revision through and records it in
+  `stats.json` and the eval reports.
 
 Prompt template (`src/data/prompt_template.py`) — Alpaca instruction wrapped in
 Qwen ChatML; `RESPONSE_TAG = "<|im_start|>assistant\n"` marks where the loss
