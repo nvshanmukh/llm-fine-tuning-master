@@ -63,6 +63,28 @@ Every executed run, with enough detail to trace or reproduce it. Runs here are
 
 ---
 
+## RUN 4 — Inference-quantization comparison (L2)
+
+| Field | Value |
+|---|---|
+| Command | `python scripts/quantize_compare.py --model-path Qwen/Qwen2.5-0.5B --modes fp,dynamic_int8,int4 --num-samples 3 --max-new-tokens 32` |
+| Base model | `Qwen/Qwen2.5-0.5B`, no adapter |
+| Examples | `test.json` rows 0–2, greedy decoding |
+| Output | `experiments/eval_results/quantization_comparison.json` |
+
+| Mode | Serialized size | Latency p50 | ROUGE-L | Notes |
+|---|---|---|---|---|
+| fp (float32) | 1884.7 MB | 3169 ms | 0.244 | baseline |
+| dynamic_int8 (torch, CPU) | 990.9 MB (×0.53) | 2085 ms (×0.66) | **0.047 (−0.197)** | quality collapsed |
+| int4 (bitsandbytes) | — | — | — | `unavailable`: ImportError (CUDA-only); recorded, **not** silently substituted |
+
+> **Honest negative result.** Naive torch dynamic int8 (per-tensor, no
+> calibration) roughly halves size and latency but **destroys** output quality on
+> this 0.5B model. n=3 is far too small to be conclusive, and NF4/GPTQ with
+> calibration typically degrade far less — but on the evidence actually gathered
+> here, this quantization method is not a good tradeoff. Re-run with bnb NF4 on a
+> CUDA host and n≥200 before drawing conclusions.
+
 ## Pending (blocked — see docs/VALIDATION.md)
 
 `base` / `lora` / `qlora` evaluation of **Qwen/Qwen2.5-1.5B**, the ablation
